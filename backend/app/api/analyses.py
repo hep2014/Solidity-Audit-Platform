@@ -170,10 +170,7 @@ def _enqueue_analysis(
         current_step=current_step,
     )
 
-    async_result = task.delay(
-        str(analysis.id),
-        project.file_path,
-    )
+    async_result = task.delay(str(analysis.id))
 
     analysis.celery_task_id = async_result.id
     db.commit()

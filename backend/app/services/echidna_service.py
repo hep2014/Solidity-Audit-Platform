@@ -1,3 +1,4 @@
+import shlex
 from pathlib import Path
 
 from app.core.config import settings
@@ -24,8 +25,11 @@ EXCLUDED_DIRS = {
 }
 
 
-def _build_message(stdout: str, stderr: str, exit_code: int) -> str:
+def _build_message(stdout: str, stderr: str, exit_code: int, timed_out: bool = False) -> str:
     parts = [f"Exit code: {exit_code}"]
+
+    if timed_out:
+        parts.append("Timed out: true")
 
     if stdout.strip():
         parts.append(f"STDOUT:\n{stdout.strip()}")
@@ -36,13 +40,17 @@ def _build_message(stdout: str, stderr: str, exit_code: int) -> str:
     return "\n\n".join(parts)
 
 
-def _severity_from_echidna_result(ok: bool) -> str:
+def _severity_from_echidna_result(ok: bool, timed_out: bool = False) -> str:
+    if timed_out:
+        return "medium"
+
     return "info" if ok else "high"
 
 
 def _find_echidna_config(workspace_dir: Path) -> Path | None:
     for name in ECHIDNA_CONFIG_NAMES:
         candidate = workspace_dir / name
+
         if candidate.exists():
             return candidate
 
@@ -123,6 +131,10 @@ def run_echidna_scan(project_file_path: str) -> list[dict]:
 
     relative_config = config_path.relative_to(workspace_dir).as_posix()
 
+    quoted_target_file = shlex.quote(target_file)
+    quoted_relative_config = shlex.quote(relative_config)
+    quoted_target_dir = shlex.quote(str(Path(target_file).parent))
+
     runner = DockerRunner(
         image=settings.echidna_image,
         timeout_seconds=300,
@@ -135,20 +147,23 @@ def run_echidna_scan(project_file_path: str) -> list[dict]:
             "set -e; "
             "export PATH=/usr/local/bin:$PATH; "
             "export SOLC=/usr/local/bin/solc; "
+            "export HOME=/tmp; "
+            "export TMPDIR=/tmp; "
+            "mkdir -p /tmp/echidna-cache; "
 
             "rm -rf /tmp/echidna_project; "
             "mkdir -p /tmp/echidna_project; "
 
-            # ВАЖНО:
-            # не копируем foundry.toml, out, cache, lib, test.
-            # Иначе Echidna включает crytic-compile foundry mode и вызывает forge.
+            # Не копируем foundry.toml, out, cache, lib, test,
+            # чтобы Echidna не проваливалась в crytic-compile foundry mode.
             "if [ -d /workspace/src ]; then cp -r /workspace/src /tmp/echidna_project/src; fi; "
-            f"cp /workspace/{relative_config} /tmp/echidna_project/{relative_config}; "
 
-            # Если загружен одиночный .sol в корне, копируем его отдельно.
-            f"if [ -f /workspace/{target_file} ]; then "
-            f"mkdir -p /tmp/echidna_project/$(dirname {target_file}); "
-            f"cp /workspace/{target_file} /tmp/echidna_project/{target_file}; "
+            f"mkdir -p /tmp/echidna_project/$(dirname {quoted_relative_config}); "
+            f"cp /workspace/{quoted_relative_config} /tmp/echidna_project/{quoted_relative_config}; "
+
+            f"if [ -f /workspace/{quoted_target_file} ]; then "
+            f"mkdir -p /tmp/echidna_project/{quoted_target_dir}; "
+            f"cp /workspace/{quoted_target_file} /tmp/echidna_project/{quoted_target_file}; "
             "fi; "
 
             "cd /tmp/echidna_project; "
@@ -157,8 +172,8 @@ def run_echidna_scan(project_file_path: str) -> list[dict]:
             "which solc || true; "
             "solc --version || true; "
 
-            f"echo 'Running Echidna target: {target_file}'; "
-            f"echidna {target_file} --config {relative_config}"
+            f"echo 'Running Echidna target: {quoted_target_file}'; "
+            f"echidna {quoted_target_file} --config {quoted_relative_config}"
         ),
     ]
 
@@ -167,16 +182,22 @@ def run_echidna_scan(project_file_path: str) -> list[dict]:
         command=command,
     )
 
+    rule = "ECHIDNA_TIMEOUT" if result.timed_out else "ECHIDNA_PROPERTY_BASED_FUZZING"
+
     return [
         {
-            "severity": _severity_from_echidna_result(result.ok),
-            "rule": "ECHIDNA_PROPERTY_BASED_FUZZING",
+            "severity": _severity_from_echidna_result(
+                ok=result.ok,
+                timed_out=result.timed_out,
+            ),
+            "rule": rule,
             "message": (
                 f"Target file: {target_file}\n\n"
                 + _build_message(
                     stdout=result.stdout,
                     stderr=result.stderr,
                     exit_code=result.exit_code,
+                    timed_out=result.timed_out,
                 )
             ),
             "line": None,

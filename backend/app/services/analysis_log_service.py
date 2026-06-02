@@ -1,11 +1,14 @@
+import logging
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Callable
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from app.models.analysis_log import AnalysisLog
+
+
+logger = logging.getLogger("app.analysis_log")
 
 
 def create_analysis_log(
@@ -24,6 +27,14 @@ def create_analysis_log(
     db.add(log)
     db.commit()
     db.refresh(log)
+
+    logger.info(
+        "analysis_log_started analysis_id=%s log_id=%s tool=%s status=%s",
+        analysis_id,
+        log.id,
+        tool,
+        status,
+    )
 
     return log
 
@@ -50,5 +61,16 @@ def finish_analysis_log(
 
     db.commit()
     db.refresh(log)
+
+    logger.info(
+        "analysis_log_finished analysis_id=%s log_id=%s tool=%s status=%s exit_code=%s duration_ms=%s has_error=%s",
+        log.analysis_id,
+        log.id,
+        log.tool,
+        log.status,
+        log.exit_code,
+        log.duration_ms,
+        bool(log.error_message),
+    )
 
     return log

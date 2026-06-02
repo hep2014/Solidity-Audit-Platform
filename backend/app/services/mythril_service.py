@@ -1,3 +1,4 @@
+import shlex
 from pathlib import Path
 
 from app.core.config import settings
@@ -17,8 +18,11 @@ EXCLUDED_DIRS = {
 }
 
 
-def _build_message(stdout: str, stderr: str, exit_code: int) -> str:
+def _build_message(stdout: str, stderr: str, exit_code: int, timed_out: bool = False) -> str:
     parts = [f"Exit code: {exit_code}"]
+
+    if timed_out:
+        parts.append("Timed out: true")
 
     if stdout.strip():
         parts.append(f"STDOUT:\n{stdout.strip()}")
@@ -29,7 +33,10 @@ def _build_message(stdout: str, stderr: str, exit_code: int) -> str:
     return "\n\n".join(parts)
 
 
-def _severity_from_mythril_result(ok: bool) -> str:
+def _severity_from_mythril_result(ok: bool, timed_out: bool = False) -> str:
+    if timed_out:
+        return "medium"
+
     return "info" if ok else "medium"
 
 
@@ -75,7 +82,10 @@ def run_mythril_scan(project_file_path: str) -> list[dict]:
             {
                 "severity": "medium",
                 "rule": "MYTHRIL_NO_SOLIDITY_FILES",
-                "message": "No Solidity files found for Mythril analysis. Test, script, lib, out and cache directories are skipped.",
+                "message": (
+                    "No Solidity files found for Mythril analysis. "
+                    "Test, script, lib, out and cache directories are skipped."
+                ),
                 "line": None,
                 "tool": "mythril",
             }
@@ -89,17 +99,23 @@ def run_mythril_scan(project_file_path: str) -> list[dict]:
     findings: list[dict] = []
 
     for target_file in target_files:
+        workspace_target = f"/workspace/{target_file}"
+        quoted_workspace_target = shlex.quote(workspace_target)
+
         command = [
             "bash",
             "-lc",
             (
                 "set -e; "
+                "export HOME=/tmp; "
+                "export TMPDIR=/tmp; "
                 "export SOLC=/usr/local/bin/solc; "
+                "mkdir -p /tmp/mythril; "
                 "echo 'Using solc:'; "
                 "which solc; "
                 "solc --version; "
-                f"echo 'Analyzing: /workspace/{target_file}'; "
-                f"myth analyze /workspace/{target_file} "
+                f"echo 'Analyzing: {quoted_workspace_target}'; "
+                f"myth analyze {quoted_workspace_target} "
                 "--solv 0.8.20 "
                 "--execution-timeout 60 "
                 "--parallel-solving"
@@ -111,16 +127,22 @@ def run_mythril_scan(project_file_path: str) -> list[dict]:
             command=command,
         )
 
+        rule = "MYTHRIL_TIMEOUT" if result.timed_out else "MYTHRIL_SYMBOLIC_EXECUTION"
+
         findings.append(
             {
-                "severity": _severity_from_mythril_result(result.ok),
-                "rule": "MYTHRIL_SYMBOLIC_EXECUTION",
+                "severity": _severity_from_mythril_result(
+                    ok=result.ok,
+                    timed_out=result.timed_out,
+                ),
+                "rule": rule,
                 "message": (
                     f"Target file: {target_file}\n\n"
                     + _build_message(
                         stdout=result.stdout,
                         stderr=result.stderr,
                         exit_code=result.exit_code,
+                        timed_out=result.timed_out,
                     )
                 ),
                 "line": None,

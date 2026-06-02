@@ -1,9 +1,10 @@
 import json
-from pathlib import Path
 import shlex
+from pathlib import Path
 
-from app.services.docker_runner import DockerRunner
 from app.core.config import settings
+from app.services.docker_runner import DockerRunner
+
 
 def _extract_json_from_stdout(stdout: str) -> dict | None:
     if not stdout.strip():
@@ -16,7 +17,7 @@ def _extract_json_from_stdout(stdout: str) -> dict | None:
         return None
 
     try:
-        return json.loads(stdout[start:end + 1])
+        return json.loads(stdout[start : end + 1])
     except json.JSONDecodeError:
         return None
 
@@ -33,9 +34,7 @@ def _map_slither_impact_to_severity(impact: str | None) -> str:
         return "medium"
     if impact == "low":
         return "low"
-    if impact == "informational":
-        return "info"
-    if impact == "optimization":
+    if impact in {"informational", "optimization"}:
         return "info"
 
     return "info"
@@ -99,20 +98,28 @@ def run_slither_scan(project_file_path: str) -> list[dict]:
 
     workspace_dir = file_path.parent
     target_file = file_path.name
-
     quoted_target_file = shlex.quote(target_file)
 
     command = [
         "bash",
         "-lc",
         (
+            "set +e; "
+            "export HOME=/tmp; "
+            "export TMPDIR=/tmp; "
+            "mkdir -p /tmp/slither; "
             f"slither {quoted_target_file} "
-            f"--json /tmp/slither-report.json "
-            f"> /tmp/slither-stdout.log "
-            f"2> /tmp/slither-stderr.log; "
-            f"code=$?; "
-            f"if [ -f /tmp/slither-report.json ]; then cat /tmp/slither-report.json; fi; "
-            f"exit $code"
+            "--json /tmp/slither/slither-report.json "
+            "> /tmp/slither/slither-stdout.log "
+            "2> /tmp/slither/slither-stderr.log; "
+            "code=$?; "
+            "if [ -f /tmp/slither/slither-report.json ]; then "
+            "cat /tmp/slither/slither-report.json; "
+            "else "
+            "cat /tmp/slither/slither-stdout.log 2>/dev/null || true; "
+            "cat /tmp/slither/slither-stderr.log 1>&2 2>/dev/null || true; "
+            "fi; "
+            "exit $code"
         ),
     ]
 
@@ -120,10 +127,26 @@ def run_slither_scan(project_file_path: str) -> list[dict]:
         image=settings.slither_image,
         timeout_seconds=180,
     )
+
     result = runner.run(
         project_path=workspace_dir,
         command=command,
     )
+
+    if result.timed_out:
+        return [
+            {
+                "severity": "medium",
+                "rule": "SLITHER_TIMEOUT",
+                "message": (
+                    "Slither analysis timed out.\n\n"
+                    f"STDOUT:\n{result.stdout}\n\n"
+                    f"STDERR:\n{result.stderr}"
+                ),
+                "line": None,
+                "tool": "slither",
+            }
+        ]
 
     report = _extract_json_from_stdout(result.stdout)
 

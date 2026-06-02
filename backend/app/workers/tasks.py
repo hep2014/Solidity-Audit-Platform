@@ -26,13 +26,57 @@ from app.services.solidity_scanner import scan_solidity
 from app.workers.celery_app import celery_app
 from app.services.finding_normalizer import normalize_finding
 
+from app.models.project import Project
 from app.core.enums import AnalysisLogStatus, AnalysisStatus
 
+import logging
+
+logger = logging.getLogger("app.worker")
 FindingRunner = Callable[[str], list[dict]]
 
 
 def _get_analysis(db: Session, analysis_id: str) -> Analysis | None:
     return db.query(Analysis).filter(Analysis.id == UUID(analysis_id)).first()
+
+def _get_analysis_or_raise(db: Session, analysis_id: str) -> Analysis:
+    analysis = _get_analysis(db, analysis_id)
+
+    if analysis is None:
+        raise RuntimeError(f"Analysis not found: {analysis_id}")
+
+    return analysis
+
+def _get_project_or_raise(db: Session, analysis: Analysis) -> Project:
+    project = analysis.project
+
+    if project is None:
+        raise RuntimeError(f"Project not found for analysis: {analysis.id}")
+
+    return project
+
+def _get_project_entrypoint_path(project: Project) -> str:
+    if project.entrypoint_path:
+        return project.entrypoint_path
+
+    return project.file_path
+
+def _get_project_root_path(project: Project) -> str:
+    if project.root_path:
+        return project.root_path
+
+    return str(Path(project.file_path).resolve().parent)
+
+def _resolve_analysis_project_paths(
+    db: Session,
+    analysis_id: str,
+) -> tuple[Analysis, Project, str, str]:
+    analysis = _get_analysis_or_raise(db, analysis_id)
+    project = _get_project_or_raise(db, analysis)
+
+    entrypoint_path = _get_project_entrypoint_path(project)
+    root_path = _get_project_root_path(project)
+
+    return analysis, project, entrypoint_path, root_path
 
 def _get_project_entrypoint(db: Session, analysis: Analysis) -> str:
     project = analysis.project
@@ -160,7 +204,6 @@ def _save_findings(
 def _run_tool_task(
     *,
     analysis_id: str,
-    project_file_path: str,
     step: str,
     tool: str,
     runner: FindingRunner,
@@ -170,15 +213,23 @@ def _run_tool_task(
     log: AnalysisLog | None = None
 
     try:
-        analysis = _get_analysis(db, analysis_id)
-
-        if analysis is None:
-            return
+        analysis, _project, project_file_path, _root_path = _resolve_analysis_project_paths(
+            db=db,
+            analysis_id=analysis_id,
+        )
 
         if _is_cancelled(analysis):
             return
 
         _start_analysis(db, analysis, step)
+
+        logger.info(
+            "tool_task_started analysis_id=%s project_id=%s step=%s tool=%s",
+            analysis.id,
+            analysis.project_id,
+            step,
+            tool,
+        )
 
         log = _create_log(
             db=db,
@@ -205,12 +256,29 @@ def _run_tool_task(
         )
 
         _finish_analysis_success(db, analysis)
+        logger.info(
+            "tool_task_finished analysis_id=%s project_id=%s step=%s tool=%s status=%s findings_count=%s",
+            analysis.id,
+            analysis.project_id,
+            step,
+            tool,
+            analysis.status,
+            len(findings),
+        )
 
     except Exception as exc:
         analysis = _get_analysis(db, analysis_id)
 
         if analysis is not None:
             _finish_analysis_failed(db, analysis, step)
+
+            logger.exception(
+                "tool_task_failed analysis_id=%s step=%s tool=%s error=%s",
+                analysis_id,
+                step,
+                tool,
+                exc,
+            )
 
             if log is None:
                 log = _create_log(
@@ -248,10 +316,9 @@ def _run_manual_checklist(_: str) -> list[dict]:
 
 
 @celery_app.task(name="run_basic_task")
-def run_basic_task(analysis_id: str, project_file_path: str) -> None:
+def run_basic_task(analysis_id: str) -> None:
     _run_tool_task(
         analysis_id=analysis_id,
-        project_file_path=project_file_path,
         step="basic-scanner",
         tool="basic-scanner",
         runner=_run_basic_scanner,
@@ -259,10 +326,9 @@ def run_basic_task(analysis_id: str, project_file_path: str) -> None:
 
 
 @celery_app.task(name="run_slither_task")
-def run_slither_task(analysis_id: str, project_file_path: str) -> None:
+def run_slither_task(analysis_id: str) -> None:
     _run_tool_task(
         analysis_id=analysis_id,
-        project_file_path=project_file_path,
         step="slither",
         tool="slither",
         runner=run_slither_scan,
@@ -270,10 +336,9 @@ def run_slither_task(analysis_id: str, project_file_path: str) -> None:
 
 
 @celery_app.task(name="run_foundry_task")
-def run_foundry_task(analysis_id: str, project_file_path: str) -> None:
+def run_foundry_task(analysis_id: str) -> None:
     _run_tool_task(
         analysis_id=analysis_id,
-        project_file_path=project_file_path,
         step="foundry",
         tool="foundry",
         runner=run_foundry_scan,
@@ -281,10 +346,9 @@ def run_foundry_task(analysis_id: str, project_file_path: str) -> None:
 
 
 @celery_app.task(name="run_mythril_task")
-def run_mythril_task(analysis_id: str, project_file_path: str) -> None:
+def run_mythril_task(analysis_id: str) -> None:
     _run_tool_task(
         analysis_id=analysis_id,
-        project_file_path=project_file_path,
         step="mythril",
         tool="mythril",
         runner=run_mythril_scan,
@@ -292,10 +356,9 @@ def run_mythril_task(analysis_id: str, project_file_path: str) -> None:
 
 
 @celery_app.task(name="run_echidna_task")
-def run_echidna_task(analysis_id: str, project_file_path: str) -> None:
+def run_echidna_task(analysis_id: str) -> None:
     _run_tool_task(
         analysis_id=analysis_id,
-        project_file_path=project_file_path,
         step="echidna",
         tool="echidna",
         runner=run_echidna_scan,
@@ -303,10 +366,9 @@ def run_echidna_task(analysis_id: str, project_file_path: str) -> None:
 
 
 @celery_app.task(name="run_cfg_task")
-def run_cfg_task(analysis_id: str, project_file_path: str) -> None:
+def run_cfg_task(analysis_id: str) -> None:
     _run_tool_task(
         analysis_id=analysis_id,
-        project_file_path=project_file_path,
         step="cfg",
         tool="cfg",
         runner=build_cfg,
@@ -314,10 +376,9 @@ def run_cfg_task(analysis_id: str, project_file_path: str) -> None:
 
 
 @celery_app.task(name="run_dfg_task")
-def run_dfg_task(analysis_id: str, project_file_path: str) -> None:
+def run_dfg_task(analysis_id: str) -> None:
     _run_tool_task(
         analysis_id=analysis_id,
-        project_file_path=project_file_path,
         step="dfg",
         tool="dfg",
         runner=build_dfg,
@@ -325,13 +386,9 @@ def run_dfg_task(analysis_id: str, project_file_path: str) -> None:
 
 
 @celery_app.task(name="run_reentrancy_correlation_task")
-def run_reentrancy_correlation_task(
-    analysis_id: str,
-    project_file_path: str,
-) -> None:
+def run_reentrancy_correlation_task(analysis_id: str) -> None:
     _run_tool_task(
         analysis_id=analysis_id,
-        project_file_path=project_file_path,
         step="reentrancy-correlation",
         tool="custom-cfg-dfg",
         runner=analyze_reentrancy_correlation,
@@ -339,13 +396,9 @@ def run_reentrancy_correlation_task(
 
 
 @celery_app.task(name="run_manual_checklist_task")
-def run_manual_checklist_task(
-    analysis_id: str,
-    project_file_path: str,
-) -> None:
+def run_manual_checklist_task(analysis_id: str) -> None:
     _run_tool_task(
         analysis_id=analysis_id,
-        project_file_path=project_file_path,
         step="manual-audit-checklist",
         tool="manual-audit",
         runner=_run_manual_checklist,
@@ -365,6 +418,15 @@ def _run_full_step(
     analysis.progress = progress
     analysis.current_step = step
     db.commit()
+
+    logger.info(
+        "full_pipeline_step_started analysis_id=%s project_id=%s step=%s tool=%s progress=%s",
+        analysis.id,
+        analysis.project_id,
+        step,
+        tool,
+        progress,
+    )
 
     if analysis.started_at is None:
         analysis.started_at = datetime.now(timezone.utc)
@@ -387,6 +449,7 @@ def _run_full_step(
             default_tool=tool,
         )
 
+
         _finish_log(
             db=db,
             log=log,
@@ -395,6 +458,17 @@ def _run_full_step(
             exit_code=0,
             stdout=f"{tool} completed. Findings saved: {len(findings)}",
         )
+
+        logger.info(
+            "full_pipeline_step_finished analysis_id=%s project_id=%s step=%s tool=%s status=%s findings_count=%s",
+            analysis.id,
+            analysis.project_id,
+            step,
+            tool,
+            AnalysisLogStatus.SUCCESS.value,
+            len(findings),
+        )
+
 
     except Exception as exc:
         _finish_log(
@@ -421,15 +495,31 @@ def _run_full_step(
             default_tool=tool,
         )
 
+        logger.exception(
+            "full_pipeline_step_failed analysis_id=%s project_id=%s step=%s tool=%s error=%s",
+            analysis.id,
+            analysis.project_id,
+            step,
+            tool,
+            exc,
+        )
+
 @celery_app.task(name="run_full_task")
-def run_full_task(analysis_id: str, project_file_path: str) -> None:
+def run_full_task(analysis_id: str) -> None:
     db = SessionLocal()
 
     try:
-        analysis = _get_analysis(db, analysis_id)
+        analysis, _project, project_file_path, _root_path = _resolve_analysis_project_paths(
+            db=db,
+            analysis_id=analysis_id,
+        )
 
-        if analysis is None:
-            return
+        logger.info(
+            "full_pipeline_started analysis_id=%s project_id=%s project_file_path=%s",
+            analysis.id,
+            analysis.project_id,
+            project_file_path,
+        )
 
         pipeline = [
             ("basic-scanner", "basic-scanner", _run_basic_scanner, 10),
@@ -495,6 +585,14 @@ def run_full_task(analysis_id: str, project_file_path: str) -> None:
 
         db.commit()
 
+        logger.info(
+            "full_pipeline_finished analysis_id=%s project_id=%s status=%s failed_steps=%s",
+            analysis.id,
+            analysis.project_id,
+            analysis.status,
+            failed_steps,
+        )
+
     except Exception:
         analysis = _get_analysis(db, analysis_id)
 
@@ -504,6 +602,11 @@ def run_full_task(analysis_id: str, project_file_path: str) -> None:
             analysis.current_step = "full-analysis-failed"
             analysis.finished_at = datetime.now(timezone.utc)
             db.commit()
+
+        logger.exception(
+            "full_pipeline_failed analysis_id=%s",
+            analysis_id,
+        )
 
         raise
 
