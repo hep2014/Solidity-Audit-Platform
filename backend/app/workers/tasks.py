@@ -28,6 +28,8 @@ from app.services.finding_normalizer import normalize_finding
 
 from app.models.project import Project
 from app.core.enums import AnalysisLogStatus, AnalysisStatus
+from sqlalchemy.exc import IntegrityError
+
 
 import logging
 
@@ -188,17 +190,77 @@ def _save_findings(
     for item in findings:
         normalized = normalize_finding(item, default_tool)
 
+        existing = (
+            db.query(Finding)
+            .filter(
+                Finding.analysis_id == analysis_id,
+                Finding.fingerprint == normalized["fingerprint"],
+            )
+            .first()
+        )
+
+        if existing is not None:
+            continue
+
         finding = Finding(
             analysis_id=analysis_id,
             severity=normalized["severity"],
             rule=normalized["rule"],
             message=normalized["message"],
+            file_path=normalized["file_path"],
             line=normalized["line"],
+            column=normalized["column"],
+            end_line=normalized["end_line"],
             tool=normalized["tool"],
+            confidence=normalized["confidence"],
+            description=normalized["description"],
+            recommendation=normalized["recommendation"],
+            references=normalized["references"],
+            fingerprint=normalized["fingerprint"],
         )
+
         db.add(finding)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+
+        for item in findings:
+            normalized = normalize_finding(item, default_tool)
+
+            existing = (
+                db.query(Finding)
+                .filter(
+                    Finding.analysis_id == analysis_id,
+                    Finding.fingerprint == normalized["fingerprint"],
+                )
+                .first()
+            )
+
+            if existing is not None:
+                continue
+
+            finding = Finding(
+                analysis_id=analysis_id,
+                severity=normalized["severity"],
+                rule=normalized["rule"],
+                message=normalized["message"],
+                file_path=normalized["file_path"],
+                line=normalized["line"],
+                column=normalized["column"],
+                end_line=normalized["end_line"],
+                tool=normalized["tool"],
+                confidence=normalized["confidence"],
+                description=normalized["description"],
+                recommendation=normalized["recommendation"],
+                references=normalized["references"],
+                fingerprint=normalized["fingerprint"],
+            )
+
+            db.add(finding)
+
+        db.commit()
 
 
 def _run_tool_task(

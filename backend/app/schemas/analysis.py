@@ -9,8 +9,22 @@ class FindingRead(BaseModel):
     severity: str
     rule: str
     message: str
+
+    file_path: str | None = None
+
     line: int | None = None
+    column: int | None = None
+    end_line: int | None = None
+
     tool: str
+
+    confidence: str | None = None
+    description: str | None = None
+    recommendation: str | None = None
+    references: list[str] | dict | None = None
+
+    fingerprint: str
+
     created_at: datetime
 
     class Config:

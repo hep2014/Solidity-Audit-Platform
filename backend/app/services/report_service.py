@@ -29,7 +29,9 @@ def _sort_findings(findings: list[Finding]) -> list[Finding]:
             -_severity_rank(finding.severity),
             finding.tool or "",
             finding.rule or "",
+            finding.file_path or "",
             finding.line if finding.line is not None else 10**9,
+            finding.column if finding.column is not None else 10**9,
             str(finding.id),
         ),
     )
