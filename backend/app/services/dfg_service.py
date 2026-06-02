@@ -27,12 +27,12 @@ def _extract_state_variables(content: str) -> set[str]:
         if stripped.startswith("//"):
             continue
 
-        brace_depth += _brace_delta(line)
-
         if brace_depth == 0:
             match = STATE_VAR_RE.search(line)
             if match:
                 state_vars.add(match.group("name"))
+
+        brace_depth += _brace_delta(line)
 
     return state_vars
 

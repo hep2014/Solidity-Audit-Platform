@@ -5,10 +5,18 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.core.database import SessionLocal
 from app.models.analysis import Analysis
-
+from app.core.enums import AnalysisStatus
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
 
+
+TERMINAL_STATUSES = {
+    AnalysisStatus.SUCCESS.value,
+    AnalysisStatus.FAILED.value,
+    AnalysisStatus.TIMEOUT.value,
+    AnalysisStatus.PARTIAL_SUCCESS.value,
+    AnalysisStatus.CANCELLED.value,
+}
 
 @router.websocket("/analyses/{analysis_id}")
 async def analysis_status_ws(websocket: WebSocket, analysis_id: UUID):

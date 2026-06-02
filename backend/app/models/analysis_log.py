@@ -1,10 +1,11 @@
 import uuid
 
-from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
+from app.core.enums import AnalysisLogStatus
 
 
 class AnalysisLog(Base):
@@ -20,7 +21,12 @@ class AnalysisLog(Base):
     )
 
     tool = Column(String(100), nullable=False)
-    status = Column(String(50), nullable=False)
+    status = Column(
+        String(50),
+        nullable=False,
+        default=AnalysisLogStatus.RUNNING.value,
+        index=True,
+    )
 
     exit_code = Column(Integer, nullable=True)
     duration_ms = Column(Integer, nullable=True)

@@ -20,7 +20,10 @@ class DockerRunner:
         image: str | None = None,
         timeout_seconds: int | None = None,
     ):
-        self.image = image or settings.analyzer_image
+        if image is None:
+            raise ValueError("DockerRunner image must be provided")
+
+        self.image = image
         self.timeout_seconds = timeout_seconds or settings.analyzer_timeout_seconds
 
     def run(
@@ -53,6 +56,22 @@ class DockerRunner:
             "--pids-limit",
             "256",
 
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+
+            "--tmpfs",
+            "/tmp:rw,noexec,nosuid,size=256m",
+            "--tmpfs",
+            "/workspace-cache:rw,noexec,nosuid,size=512m",
+
+            "-e",
+            "HOME=/tmp",
+            "-e",
+            "TMPDIR=/tmp",
+
             "-v",
             f"{project_path}:/workspace:ro",
             "-w",
@@ -69,6 +88,7 @@ class DockerRunner:
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_seconds,
+                check=False,
             )
 
             return DockerRunResult(
@@ -79,10 +99,19 @@ class DockerRunner:
             )
 
         except subprocess.TimeoutExpired as exc:
+            stdout = exc.stdout or ""
+            stderr = exc.stderr or "Docker command timed out"
+
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode("utf-8", errors="ignore")
+
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", errors="ignore")
+
             return DockerRunResult(
                 ok=False,
                 exit_code=-1,
-                stdout=exc.stdout or "",
-                stderr=exc.stderr or "Docker command timed out",
+                stdout=stdout,
+                stderr=stderr,
                 timed_out=True,
             )

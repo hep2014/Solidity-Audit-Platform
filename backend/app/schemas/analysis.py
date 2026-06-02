@@ -20,13 +20,18 @@ class FindingRead(BaseModel):
 class AnalysisRead(BaseModel):
     id: UUID
     project_id: UUID
+    celery_task_id: str | None = None
     status: str
     progress: int
     current_step: str | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
     created_at: datetime
+    updated_at: datetime | None = None
 
     class Config:
         from_attributes = True
+
 
 class AnalysisLogRead(BaseModel):
     id: UUID

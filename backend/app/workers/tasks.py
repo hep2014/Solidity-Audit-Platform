@@ -26,28 +26,56 @@ from app.services.solidity_scanner import scan_solidity
 from app.workers.celery_app import celery_app
 from app.services.finding_normalizer import normalize_finding
 
+from app.core.enums import AnalysisLogStatus, AnalysisStatus
+
 FindingRunner = Callable[[str], list[dict]]
 
 
 def _get_analysis(db: Session, analysis_id: str) -> Analysis | None:
     return db.query(Analysis).filter(Analysis.id == UUID(analysis_id)).first()
 
+def _get_project_entrypoint(db: Session, analysis: Analysis) -> str:
+    project = analysis.project
+
+    if project is None:
+        db.refresh(analysis)
+        project = analysis.project
+
+    if project and project.entrypoint_path:
+        return project.entrypoint_path
+
+    if project:
+        return project.file_path
+
+    raise RuntimeError("Analysis project is not available")
 
 def _start_analysis(
     db: Session,
     analysis: Analysis,
     step: str,
 ) -> None:
-    analysis.status = "RUNNING"
+    analysis.status = AnalysisStatus.RUNNING.value
     analysis.progress = 10
     analysis.current_step = step
+
+    if analysis.started_at is None:
+        analysis.started_at = datetime.now(timezone.utc)
+
     db.commit()
+
+def _is_cancelled(analysis: Analysis) -> bool:
+    return analysis.status == AnalysisStatus.CANCELLED.value
 
 
 def _finish_analysis_success(db: Session, analysis: Analysis) -> None:
-    analysis.status = "SUCCESS"
+    if _is_cancelled(analysis):
+        db.commit()
+        return
+
+    analysis.status = AnalysisStatus.SUCCESS.value
     analysis.progress = 100
     analysis.current_step = "completed"
+    analysis.finished_at = datetime.now(timezone.utc)
     db.commit()
 
 
@@ -56,9 +84,14 @@ def _finish_analysis_failed(
     analysis: Analysis,
     step: str,
 ) -> None:
-    analysis.status = "FAILED"
+    if _is_cancelled(analysis):
+        db.commit()
+        return
+
+    analysis.status = AnalysisStatus.FAILED.value
     analysis.progress = 100
     analysis.current_step = f"{step}-failed"
+    analysis.finished_at = datetime.now(timezone.utc)
     db.commit()
 
 
@@ -70,7 +103,7 @@ def _create_log(
     log = AnalysisLog(
         analysis_id=analysis_id,
         tool=tool,
-        status="RUNNING",
+        status=AnalysisLogStatus.RUNNING.value,
         started_at=datetime.now(timezone.utc),
     )
 
@@ -142,6 +175,9 @@ def _run_tool_task(
         if analysis is None:
             return
 
+        if _is_cancelled(analysis):
+            return
+
         _start_analysis(db, analysis, step)
 
         log = _create_log(
@@ -163,7 +199,7 @@ def _run_tool_task(
             db=db,
             log=log,
             started_perf=started_perf,
-            status="SUCCESS",
+            status=AnalysisLogStatus.SUCCESS.value,
             exit_code=0,
             stdout=f"{tool} completed. Findings saved: {len(findings)}",
         )
@@ -187,7 +223,7 @@ def _run_tool_task(
                 db=db,
                 log=log,
                 started_perf=started_perf,
-                status="FAILED",
+                status=AnalysisLogStatus.FAILED.value,
                 exit_code=-1,
                 error_message=str(exc),
             )
@@ -325,10 +361,13 @@ def _run_full_step(
     runner: FindingRunner,
     progress: int,
 ) -> None:
-    analysis.status = "RUNNING"
+    analysis.status = AnalysisStatus.RUNNING.value
     analysis.progress = progress
     analysis.current_step = step
     db.commit()
+
+    if analysis.started_at is None:
+        analysis.started_at = datetime.now(timezone.utc)
 
     started_perf = perf_counter()
 
@@ -352,7 +391,7 @@ def _run_full_step(
             db=db,
             log=log,
             started_perf=started_perf,
-            status="SUCCESS",
+            status=AnalysisLogStatus.SUCCESS.value,
             exit_code=0,
             stdout=f"{tool} completed. Findings saved: {len(findings)}",
         )
@@ -362,7 +401,7 @@ def _run_full_step(
             db=db,
             log=log,
             started_perf=started_perf,
-            status="FAILED",
+            status=AnalysisLogStatus.FAILED.value,
             exit_code=-1,
             error_message=str(exc),
         )
@@ -417,11 +456,13 @@ def run_full_task(analysis_id: str, project_file_path: str) -> None:
         failed_steps = 0
 
         for step, tool, runner, progress in pipeline:
-            before_logs_count = (
-                db.query(AnalysisLog)
-                .filter(AnalysisLog.analysis_id == analysis.id)
-                .count()
-            )
+            db.refresh(analysis)
+
+            if _is_cancelled(analysis):
+                analysis.progress = 100
+                analysis.current_step = "cancelled"
+                db.commit()
+                return
 
             _run_full_step(
                 db=db,
@@ -440,16 +481,17 @@ def run_full_task(analysis_id: str, project_file_path: str) -> None:
                 .first()
             )
 
-            if latest_log and latest_log.status == "FAILED":
+            if latest_log and latest_log.status == AnalysisLogStatus.FAILED.value:
                 failed_steps += 1
 
         analysis.progress = 100
         analysis.current_step = "completed"
+        analysis.finished_at = datetime.now(timezone.utc)
 
         if failed_steps == 0:
-            analysis.status = "SUCCESS"
+            analysis.status = AnalysisStatus.SUCCESS.value
         else:
-            analysis.status = "PARTIAL_SUCCESS"
+            analysis.status = AnalysisStatus.PARTIAL_SUCCESS.value
 
         db.commit()
 
@@ -457,9 +499,10 @@ def run_full_task(analysis_id: str, project_file_path: str) -> None:
         analysis = _get_analysis(db, analysis_id)
 
         if analysis is not None:
-            analysis.status = "FAILED"
+            analysis.status = AnalysisStatus.FAILED.value
             analysis.progress = 100
             analysis.current_step = "full-analysis-failed"
+            analysis.finished_at = datetime.now(timezone.utc)
             db.commit()
 
         raise

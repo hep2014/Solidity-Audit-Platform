@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import shlex
 
 from app.services.docker_runner import DockerRunner
 from app.core.config import settings
@@ -99,11 +100,13 @@ def run_slither_scan(project_file_path: str) -> list[dict]:
     workspace_dir = file_path.parent
     target_file = file_path.name
 
+    quoted_target_file = shlex.quote(target_file)
+
     command = [
         "bash",
         "-lc",
         (
-            f"slither {target_file} "
+            f"slither {quoted_target_file} "
             f"--json /tmp/slither-report.json "
             f"> /tmp/slither-stdout.log "
             f"2> /tmp/slither-stderr.log; "
