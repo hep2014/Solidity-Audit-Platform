@@ -92,8 +92,3 @@ docs/whitepaper.pdf
 docs/solution.pdf
 ```
 
-docs/whitepaper.pdf
-
-Презентация проекта находится в файле:
-
-docs/solution.pdf
