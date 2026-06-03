@@ -76,7 +76,21 @@ function CfgEvidenceBlock({
             </article>
           ))}
         </div>
+
       )}
+
+            {!compact && data.edges.length > 0 && (
+        <div className="special-edge-list">
+            {data.edges.slice(0, 12).map((edge, index) => (
+            <article key={`${edge.from}-${edge.to}-${index}`}>
+                <code>{edge.from || "?"}</code>
+                <span>→</span>
+                <code>{edge.to || "?"}</code>
+                <Badge>{edge.type || "edge"}</Badge>
+            </article>
+            ))}
+        </div>
+        )}
 
       {compact && data.nodes.length > visibleNodes.length && (
         <div className="special-compact-hint">

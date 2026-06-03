@@ -1,63 +1,111 @@
-import { useState } from "react";
-import { FileSearch, Loader2, RotateCcw } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import {
+  ArrowRight,
+  FileArchive,
+  FileCode2,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  UploadCloud
+} from "lucide-react";
 
 import { Card, CardHeader } from "../shared/ui/Card";
 import { Button } from "../shared/ui/Button";
-import { Badge, severityTone } from "../shared/ui/Badge";
+import { Badge } from "../shared/ui/Badge";
 import { FileDropzone } from "../shared/ui/FileDropzone";
-import { quickScanSolidity } from "../shared/api/scan";
 import { ApiError } from "../shared/api/http";
-import type { ScanIssue, ScanResponse } from "../shared/types/api";
-import { getSeverityRuLabel, normalizeSeverity } from "../domain/severity";
+import {
+  deleteProject,
+  listProjects,
+  uploadProject
+} from "../shared/api/projects";
+import type { ProjectRead } from "../shared/types/api";
+import { formatDateTime, stringifyJson } from "../shared/utils/format";
 
-export function QuickScanPage() {
-  const [file, setFile] = useState<File | null>(null);
-  const [result, setResult] = useState<ScanResponse | null>(null);
-  const [scanning, setScanning] = useState(false);
+export function ProjectsPage() {
+  const [projects, setProjects] = useState<ProjectRead[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleScan() {
-    if (!file) {
-      return;
-    }
-
-    setScanning(true);
+  async function loadProjects() {
+    setLoadingProjects(true);
     setError(null);
-    setResult(null);
 
     try {
-      const response = await quickScanSolidity(file);
-      setResult(response);
+      const response = await listProjects();
+      setProjects(response);
     } catch (exception) {
       setError(getErrorMessage(exception));
     } finally {
-      setScanning(false);
+      setLoadingProjects(false);
     }
   }
 
-  function reset() {
-    setFile(null);
-    setResult(null);
+  async function handleUpload() {
+    if (!selectedFile) {
+      return;
+    }
+
+    setUploading(true);
     setError(null);
+
+    try {
+      const project = await uploadProject(selectedFile);
+      setSelectedFile(null);
+      setProjects((current) => [project, ...current]);
+    } catch (exception) {
+      setError(getErrorMessage(exception));
+    } finally {
+      setUploading(false);
+    }
   }
+
+  async function handleDelete(projectId: string) {
+    const confirmed = window.confirm(
+      "Удалить проект? Вместе с ним будут удалены связанные анализы и сохраненные файлы."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingProjectId(projectId);
+    setError(null);
+
+    try {
+      await deleteProject(projectId);
+      setProjects((current) => current.filter((project) => project.id !== projectId));
+    } catch (exception) {
+      setError(getErrorMessage(exception));
+    } finally {
+      setDeletingProjectId(null);
+    }
+  }
+
+  useEffect(() => {
+    loadProjects();
+  }, []);
 
   return (
     <div className="page-grid page-grid-two">
       <Card>
         <CardHeader
-          eyebrow="Быстрая проверка"
-          title="Проверить один Solidity-файл"
-          description="Режим для мгновенной эвристической проверки одного `.sol` файла без добавления проекта в общий список."
+          eyebrow="Загрузка"
+          title="Добавить проект"
+          description="Поддерживаются одиночные `.sol` файлы и `.zip` архивы. Для архива автоматически определяется тип проекта, точка входа, список Solidity-файлов и версии компилятора."
         />
 
         <div className="card-body page-grid">
           <FileDropzone
-            value={file}
-            accept=".sol"
-            title="Выберите `.sol` файл"
-            description="Быстрая проверка принимает только одиночный Solidity-файл."
-            disabled={scanning}
-            onChange={setFile}
+            value={selectedFile}
+            disabled={uploading}
+            title="Выберите Solidity-файл или архив"
+            description="Загрузите `.sol` файл либо `.zip` архив с проектом."
+            onChange={setSelectedFile}
           />
 
           {error && (
@@ -69,26 +117,32 @@ export function QuickScanPage() {
 
           <div className="actions-row">
             <Button
-              disabled={!file || scanning}
-              onClick={handleScan}
+              onClick={handleUpload}
+              disabled={!selectedFile || uploading}
               icon={
-                scanning ? (
+                uploading ? (
                   <Loader2 className="spin" size={17} />
                 ) : (
-                  <FileSearch size={17} />
+                  <UploadCloud size={17} />
                 )
               }
             >
-              {scanning ? "Проверка..." : "Запустить проверку"}
+              {uploading ? "Загрузка..." : "Загрузить"}
             </Button>
 
             <Button
               variant="secondary"
-              onClick={reset}
-              disabled={scanning}
-              icon={<RotateCcw size={17} />}
+              onClick={loadProjects}
+              disabled={loadingProjects}
+              icon={
+                loadingProjects ? (
+                  <Loader2 className="spin" size={17} />
+                ) : (
+                  <RefreshCw size={17} />
+                )
+              }
             >
-              Сбросить
+              Обновить список
             </Button>
           </div>
         </div>
@@ -96,64 +150,131 @@ export function QuickScanPage() {
 
       <Card>
         <CardHeader
-          eyebrow="Результат"
-          title="Итоги быстрой проверки"
-          description="Сканер проверяет базовые признаки риска: отсутствие pragma/SPDX, использование tx.origin, selfdestruct, delegatecall, низкоуровневых вызовов и block.timestamp."
+          eyebrow="Форматы"
+          title="Поддерживаемые варианты"
+          description="Проект проходит проверку имени, размера, структуры архива и количества Solidity-файлов перед сохранением."
         />
 
         <div className="card-body">
-          {!result ? (
+          <div className="info-stack">
+            <div className="info-line">
+              <FileCode2 size={18} />
+              <div>
+                <strong>Одиночный Solidity-файл</strong>
+                <span>
+                  Один `.sol` файл сохраняется как отдельный проект и сразу
+                  может быть передан анализаторам.
+                </span>
+              </div>
+            </div>
+
+            <div className="info-line">
+              <FileArchive size={18} />
+              <div>
+                <strong>Архив проекта</strong>
+                <span>
+                  Поддерживаются Foundry, Hardhat, multi-file и single-file
+                  структуры внутри `.zip`.
+                </span>
+              </div>
+            </div>
+
+            <div className="info-line">
+              <UploadCloud size={18} />
+              <div>
+                <strong>Автоматический выбор точки входа</strong>
+                <span>
+                  Приоритет: `foundry.toml`, затем Solidity-файлы из `src`,
+                  затем первый найденный `.sol` файл.
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="wide-card">
+        <CardHeader
+          eyebrow="Проекты"
+          title="Загруженные проекты"
+          description="Откройте проект, чтобы запустить отдельный анализатор, полный пайплайн или просмотреть историю проверок."
+        />
+
+        <div className="card-body">
+          {loadingProjects ? (
+            <div className="loading-state">
+              <Loader2 className="spin" size={22} />
+              <span>Загрузка списка проектов...</span>
+            </div>
+          ) : !projects.length ? (
             <div className="empty-state">
-              <strong>Результатов пока нет</strong>
-              <p>Выберите `.sol` файл и запустите проверку.</p>
+              <strong>Список проектов пуст</strong>
+              <p>Загрузите `.sol` файл или `.zip` архив через форму выше.</p>
             </div>
           ) : (
-            <div className="quick-scan-result">
-              <div className="metric-grid">
-                <div className="metric-card">
-                  <span>Файл</span>
-                  <strong>{result.filename}</strong>
-                </div>
+            <div className="project-card-grid">
+              {projects.map((project) => (
+                <article key={project.id} className="project-card">
+                  <header>
+                    <div className="project-icon">
+                      {project.project_type === "single_file" ? (
+                        <FileCode2 size={22} />
+                      ) : (
+                        <FileArchive size={22} />
+                      )}
+                    </div>
 
-                <div className="metric-card">
-                  <span>Найдено записей</span>
-                  <strong>{result.total}</strong>
-                </div>
-              </div>
+                    <Badge>{getProjectTypeLabel(project.project_type)}</Badge>
+                  </header>
 
-              {!result.issues.length ? (
-                <div className="empty-state">
-                  <strong>Проблем не найдено</strong>
-                  <p>
-                    Базовый сканер не обнаружил известных эвристических
-                    паттернов риска.
-                  </p>
-                </div>
-              ) : (
-                <div className="quick-issue-list">
-                  {result.issues.map((issue, index) => (
-                    <article
-                      key={`${issue.rule}-${index}`}
-                      className="quick-issue-card"
+                  <h3>{project.name}</h3>
+
+                  <div className="project-meta">
+                    <span>
+                      Solidity-файлов: {project.solidity_files_count}
+                    </span>
+
+                    <span>
+                      Загружен: {formatDateTime(project.created_at)}
+                    </span>
+
+                    <span>
+                      Версия solc:{" "}
+                      {project.detected_solc_versions?.length
+                        ? project.detected_solc_versions.join(", ")
+                        : "не определена"}
+                    </span>
+                  </div>
+
+                  <details className="metadata-details">
+                    <summary>Метаданные</summary>
+                    <pre>{stringifyJson(project.project_metadata)}</pre>
+                  </details>
+
+                  <footer>
+                    <Link to={`/projects/${project.id}`}>
+                      <Button variant="secondary" icon={<ArrowRight size={16} />}>
+                        Открыть
+                      </Button>
+                    </Link>
+
+                    <Button
+                      variant="danger"
+                      disabled={deletingProjectId === project.id}
+                      onClick={() => handleDelete(project.id)}
+                      icon={
+                        deletingProjectId === project.id ? (
+                          <Loader2 className="spin" size={16} />
+                        ) : (
+                          <Trash2 size={16} />
+                        )
+                      }
                     >
-                      <header>
-                        <Badge tone={severityTone(issue.severity)}>
-                          {getSeverityRuLabel(normalizeSeverity(issue.severity))}
-                        </Badge>
-
-                        <code>{issue.rule}</code>
-                      </header>
-
-                      <h3>{getIssueTitle(issue)}</h3>
-                      <p>{getIssueDescription(issue)}</p>
-
-                      <span>
-                        Строка: {issue.line ?? "—"}
-                      </span>
-                    </article>
-                  ))}
-                </div>
-              )}
+                      Удалить
+                    </Button>
+                  </footer>
+                </article>
+              ))}
             </div>
           )}
         </div>
@@ -162,51 +283,18 @@ export function QuickScanPage() {
   );
 }
 
-function getIssueTitle(issue: ScanIssue): string {
-  switch (issue.rule) {
-    case "EMPTY_FILE":
-      return "Пустой файл";
-    case "NO_SPDX":
-      return "Отсутствует SPDX-лицензия";
-    case "NO_PRAGMA":
-      return "Отсутствует pragma solidity";
-    case "NO_CONTRACT":
-      return "Не найдено объявление контракта";
-    case "TX_ORIGIN":
-      return "Риск авторизации через tx.origin";
-    case "SELFDESTRUCT":
-      return "Опасная операция selfdestruct";
-    case "DELEGATECALL":
-      return "Опасный delegatecall";
-    case "LOW_LEVEL_CALL":
-      return "Низкоуровневый внешний вызов";
-    case "BLOCK_TIMESTAMP":
-      return "Зависимость от block.timestamp";
+function getProjectTypeLabel(projectType: string): string {
+  switch (projectType) {
+    case "single_file":
+      return "Одиночный файл";
+    case "multi_file":
+      return "Несколько файлов";
+    case "foundry":
+      return "Foundry-проект";
+    case "hardhat":
+      return "Hardhat-проект";
     default:
-      return "Найдено предупреждение";
-  }
-}
-
-function getIssueDescription(issue: ScanIssue): string {
-  switch (issue.rule) {
-    case "NO_SPDX":
-      return "В файле не указан идентификатор лицензии. Рекомендуется добавить строку вида `// SPDX-License-Identifier: MIT` или другой корректный SPDX identifier.";
-    case "NO_PRAGMA":
-      return "В файле не задана версия компилятора Solidity. Рекомендуется явно указать совместимый диапазон версии.";
-    case "NO_CONTRACT":
-      return "Сканер не обнаружил объявление контракта. Проверьте, что загружен корректный Solidity-файл.";
-    case "TX_ORIGIN":
-      return "Использование tx.origin в авторизации может привести к phishing-сценариям через промежуточный контракт.";
-    case "SELFDESTRUCT":
-      return "selfdestruct может уничтожить контракт или привести к опасному изменению жизненного цикла системы.";
-    case "DELEGATECALL":
-      return "delegatecall выполняет внешний код в контексте storage текущего контракта и требует строгого контроля target-адреса.";
-    case "LOW_LEVEL_CALL":
-      return "Низкоуровневый вызов требует проверки результата, порядка обновления состояния и риска реентерабельности.";
-    case "BLOCK_TIMESTAMP":
-      return "block.timestamp не следует использовать как надежный источник случайности или критическое условие бизнес-логики.";
-    default:
-      return issue.message;
+      return projectType || "Тип не определен";
   }
 }
 

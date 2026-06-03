@@ -12,6 +12,8 @@ import {
 import { Badge } from "../../shared/ui/Badge";
 import { Button } from "../../shared/ui/Button";
 import { FindingCard } from "./FindingCard";
+import { AnalyzerRunStatusCard } from "./AnalyzerRunStatusCard";
+import { buildAnalyzerRunStatus } from "./analyzerRunStatus";
 
 interface AnalyzerResultsSectionProps {
   group: GroupedAnalyzerFindings;
@@ -25,22 +27,51 @@ export function AnalyzerResultsSection({
   onOpenDetails
 }: AnalyzerResultsSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
+  const runStatus = useMemo(
+    () => buildAnalyzerRunStatus(group.logs),
+    [group.logs]
+  );
 
   const statusTone = useMemo(() => {
-    if (group.toolErrorCount > 0) return "danger";
-    if (group.vulnerabilityCount > 0) return "warning";
-    if (group.findings.length > 0 || group.logs.length > 0) return "success";
+    if (runStatus.state === "failed" || runStatus.state === "timeout") {
+      return "danger";
+    }
+
+    if (runStatus.state === "running") {
+      return "info";
+    }
+
+    if (group.toolErrorCount > 0) {
+      return "danger";
+    }
+
+    if (group.vulnerabilityCount > 0) {
+      return "warning";
+    }
+
+    if (runStatus.state === "success") {
+      return "success";
+    }
+
+    if (group.findings.length > 0 || group.logs.length > 0) {
+      return "success";
+    }
+
     return "neutral";
-  }, [group]);
+  }, [group, runStatus]);
 
   const statusLabel = useMemo(() => {
+    if (runStatus.state === "failed") return "ошибка запуска";
+    if (runStatus.state === "timeout") return "таймаут";
+    if (runStatus.state === "running") return "выполняется";
     if (group.toolErrorCount > 0) return "есть ошибки";
     if (group.vulnerabilityCount > 0) return "есть риски";
     if (group.manualCheckCount > 0) return "ручная проверка";
     if (group.graphInfoCount > 0) return "графовые данные";
     if (group.noIssueCount > 0) return "без проблем";
+    if (runStatus.state === "success") return "завершен";
     return "нет данных";
-  }, [group]);
+  }, [group, runStatus]);
 
   return (
     <section className="analyzer-section">
@@ -59,6 +90,7 @@ export function AnalyzerResultsSection({
             <Badge>ручная проверка: {group.manualCheckCount}</Badge>
             <Badge>графы: {group.graphInfoCount}</Badge>
             <Badge>без проблем: {group.noIssueCount}</Badge>
+            <Badge>логи: {group.logs.length}</Badge>
           </div>
         </div>
 
@@ -74,11 +106,15 @@ export function AnalyzerResultsSection({
 
       {open && (
         <div className="analyzer-section-body">
+          <AnalyzerRunStatusCard logs={group.logs} />
+
           {group.findings.length === 0 ? (
             <div className="empty-state">
-              <strong>Результаты не получены</strong>
+              <strong>Findings не получены</strong>
               <p>
-                Анализатор запускался, но список findings для него пуст.
+                Для этого анализатора нет нормализованных результатов. Если
+                запуск завершился с ошибкой, подробности доступны в технических
+                логах.
               </p>
             </div>
           ) : (
