@@ -9,17 +9,14 @@ import type {
 export function parseSpecializedEvidence(
   finding: ClassifiedFinding
 ): SpecializedEvidence {
-  if (finding.analyzer === "cfg" && finding.rule === "CFG_FUNCTION_GRAPH") {
+  if (finding.analyzer === "cfg" && looksLikeCfgEvidence(finding.message)) {
     return {
       type: "cfg",
       data: parseCfgEvidence(finding.message)
     };
   }
 
-  if (
-    finding.analyzer === "dfg" &&
-    (finding.rule === "DFG_STATE_READ" || finding.rule === "DFG_STATE_WRITE")
-  ) {
+  if (finding.analyzer === "dfg" && looksLikeDfgEvidence(finding.message)) {
     return {
       type: "dfg",
       data: parseDfgEvidence(finding.message)
@@ -28,7 +25,7 @@ export function parseSpecializedEvidence(
 
   if (
     finding.analyzer === "custom-cfg-dfg" &&
-    finding.rule === "POSSIBLE_REENTRANCY_BY_CFG_DFG"
+    looksLikeReentrancyEvidence(finding.message)
   ) {
     return {
       type: "reentrancy",
@@ -39,6 +36,35 @@ export function parseSpecializedEvidence(
   return {
     type: "none"
   };
+}
+
+function looksLikeCfgEvidence(message: string): boolean {
+  return (
+    (message.includes("'function'") || message.includes('"function"')) &&
+    (
+      message.includes("'nodes'") ||
+      message.includes('"nodes"') ||
+      message.includes("'nodes_count'") ||
+      message.includes('"nodes_count"')
+    )
+  );
+}
+
+function looksLikeDfgEvidence(message: string): boolean {
+  return (
+    message.includes("state_variable") ||
+    message.includes("access_type") ||
+    message.includes("'code'") ||
+    message.includes('"code"')
+  );
+}
+
+function looksLikeReentrancyEvidence(message: string): boolean {
+  return (
+    message.includes("External call line") ||
+    message.includes("State write line") ||
+    message.includes("State variable written after external call")
+  );
 }
 
 function parseCfgEvidence(message: string): ParsedCfgEvidence {
@@ -63,27 +89,38 @@ function parseCfgEvidence(message: string): ParsedCfgEvidence {
 
     const nodes = rawNodes
       .filter(isRecord)
-      .map((node) => ({
-        id: readString(node, ["id", "node_id"]),
-        type: readString(node, ["type", "kind"]),
-        label: readString(node, ["label", "title", "code", "condition"]),
+      .map((node, index) => ({
+        id:
+          readString(node, ["id", "node_id"]) ??
+          readNumber(node, ["line", "line_no", "start_line"])?.toString() ??
+          String(index + 1),
+        type: readString(node, ["type", "kind"]) ?? undefined,
+        label:
+          readString(node, ["label", "title", "code", "condition"]) ??
+          undefined,
         line: readNumber(node, ["line", "line_no", "start_line"]) ?? undefined
       }));
 
     const edges = rawEdges
       .filter(isRecord)
       .map((edge) => ({
-        from: readString(edge, ["from", "source", "src"]),
-        to: readString(edge, ["to", "target", "dst"]),
-        type: readString(edge, ["type", "kind", "label"])
+        from: readString(edge, ["from", "source", "src"]) ?? undefined,
+        to: readString(edge, ["to", "target", "dst"]) ?? undefined,
+        type: readString(edge, ["type", "kind", "label"]) ?? undefined
       }));
 
     return {
       functionName,
       startLine,
       endLine,
-      nodesCount: nodes.length || readNumber(payload, ["nodes_count", "node_count"]) || null,
-      edgesCount: edges.length || readNumber(payload, ["edges_count", "edge_count"]) || null,
+      nodesCount:
+        nodes.length ||
+        readNumber(payload, ["nodes_count", "node_count"]) ||
+        null,
+      edgesCount:
+        edges.length ||
+        readNumber(payload, ["edges_count", "edge_count"]) ||
+        null,
       nodes,
       edges
     };
@@ -152,56 +189,62 @@ function parseCfgByRegex(message: string): ParsedCfgEvidence {
     extractNumber(message, /['"]end_line['"]\s*:\s*(\d+)/) ??
     extractNumber(message, /End line:\s*(\d+)/i);
 
-  const nodeMatches = [...message.matchAll(/\{[^{}]*['"]id['"]\s*:\s*['"]?([^,'"}]+)['"]?[^{}]*\}/g)];
-  const edgeMatches = [...message.matchAll(/\{[^{}]*['"](?:from|source)['"]\s*:\s*['"]?([^,'"}]+)['"]?[^{}]*\}/g)];
+  const rawNodesList = extractListChunk(message, "nodes");
+  const rawEdgesList = extractListChunk(message, "edges");
 
-  const nodes = nodeMatches.slice(0, 50).map((match, index) => {
-    const chunk = match[0];
+  const nodes = rawNodesList
+    ? extractDictChunks(rawNodesList)
+        .slice(0, 80)
+        .map((chunk, index) => ({
+          id:
+            extractString(chunk, /['"]id['"]\s*:\s*['"]([^'"]+)['"]/) ||
+            extractNumber(chunk, /['"]line['"]\s*:\s*(\d+)/)?.toString() ||
+            String(index + 1),
+          type:
+            extractString(chunk, /['"]type['"]\s*:\s*['"]([^'"]+)['"]/) ||
+            extractString(chunk, /['"]kind['"]\s*:\s*['"]([^'"]+)['"]/) ||
+            undefined,
+          label:
+            extractString(chunk, /['"]label['"]\s*:\s*['"]([^'"]*)['"]/) ||
+            extractString(chunk, /['"]code['"]\s*:\s*['"]([^'"]*)['"]/) ||
+            undefined,
+          line:
+            extractNumber(chunk, /['"]line['"]\s*:\s*(\d+)/) ??
+            undefined
+        }))
+    : [];
 
-    return {
-      id:
-        extractString(chunk, /['"]id['"]\s*:\s*['"]([^'"]+)['"]/) ||
-        String(index + 1),
-      type:
-        extractString(chunk, /['"]type['"]\s*:\s*['"]([^'"]+)['"]/) ||
-        extractString(chunk, /['"]kind['"]\s*:\s*['"]([^'"]+)['"]/) ||
-        undefined,
-      label:
-        extractString(chunk, /['"]label['"]\s*:\s*['"]([^'"]+)['"]/) ||
-        extractString(chunk, /['"]code['"]\s*:\s*['"]([^'"]+)['"]/) ||
-        undefined,
-      line:
-        extractNumber(chunk, /['"]line['"]\s*:\s*(\d+)/) ??
-        undefined
-    };
-  });
-
-  const edges = edgeMatches.slice(0, 80).map((match) => {
-    const chunk = match[0];
-
-    return {
-      from:
-        extractString(chunk, /['"]from['"]\s*:\s*['"]([^'"]+)['"]/) ||
-        extractString(chunk, /['"]source['"]\s*:\s*['"]([^'"]+)['"]/) ||
-        undefined,
-      to:
-        extractString(chunk, /['"]to['"]\s*:\s*['"]([^'"]+)['"]/) ||
-        extractString(chunk, /['"]target['"]\s*:\s*['"]([^'"]+)['"]/) ||
-        undefined,
-      type:
-        extractString(chunk, /['"]type['"]\s*:\s*['"]([^'"]+)['"]/) ||
-        extractString(chunk, /['"]label['"]\s*:\s*['"]([^'"]+)['"]/) ||
-        undefined
-    };
-  });
+  const edges = rawEdgesList
+    ? extractDictChunks(rawEdgesList)
+        .slice(0, 120)
+        .map((chunk) => ({
+          from:
+            extractString(chunk, /['"]from['"]\s*:\s*['"]([^'"]+)['"]/) ||
+            extractString(chunk, /['"]source['"]\s*:\s*['"]([^'"]+)['"]/) ||
+            undefined,
+          to:
+            extractString(chunk, /['"]to['"]\s*:\s*['"]([^'"]+)['"]/) ||
+            extractString(chunk, /['"]target['"]\s*:\s*['"]([^'"]+)['"]/) ||
+            undefined,
+          type:
+            extractString(chunk, /['"]type['"]\s*:\s*['"]([^'"]+)['"]/) ||
+            extractString(chunk, /['"]label['"]\s*:\s*['"]([^'"]+)['"]/) ||
+            undefined
+        }))
+    : [];
 
   return {
     functionName,
     startLine,
     endLine,
-    nodesCount: nodes.length || countOccurrences(message, /['"]id['"]\s*:/g) || null,
+    nodesCount:
+      nodes.length ||
+      extractNumber(message, /['"]nodes_count['"]\s*:\s*(\d+)/) ||
+      countOccurrences(message, /['"]line['"]\s*:/g) ||
+      null,
     edgesCount:
       edges.length ||
+      extractNumber(message, /['"]edges_count['"]\s*:\s*(\d+)/) ||
       countOccurrences(message, /['"]from['"]\s*:/g) ||
       countOccurrences(message, /['"]source['"]\s*:/g) ||
       null,
@@ -239,7 +282,6 @@ function normalizePythonDictString(value: string): string {
   result = result.replace(/\bNone\b/g, "null");
   result = result.replace(/\bTrue\b/g, "true");
   result = result.replace(/\bFalse\b/g, "false");
-
   result = replaceSingleQuotedStrings(result);
 
   return result;
@@ -313,6 +355,76 @@ function extractKeyValueLines(message: string): Record<string, string> {
   }
 
   return result;
+}
+
+function extractListChunk(message: string, key: string): string | null {
+  const singleQuoteKey = `'${key}'`;
+  const doubleQuoteKey = `"${key}"`;
+
+  let keyIndex = message.indexOf(singleQuoteKey);
+
+  if (keyIndex === -1) {
+    keyIndex = message.indexOf(doubleQuoteKey);
+  }
+
+  if (keyIndex === -1) {
+    return null;
+  }
+
+  const listStart = message.indexOf("[", keyIndex);
+
+  if (listStart === -1) {
+    return null;
+  }
+
+  let depth = 0;
+
+  for (let index = listStart; index < message.length; index += 1) {
+    const char = message[index];
+
+    if (char === "[") {
+      depth += 1;
+    }
+
+    if (char === "]") {
+      depth -= 1;
+
+      if (depth === 0) {
+        return message.slice(listStart, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractDictChunks(listChunk: string): string[] {
+  const chunks: string[] = [];
+  let start = -1;
+  let depth = 0;
+
+  for (let index = 0; index < listChunk.length; index += 1) {
+    const char = listChunk[index];
+
+    if (char === "{") {
+      if (depth === 0) {
+        start = index;
+      }
+
+      depth += 1;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+
+      if (depth === 0 && start !== -1) {
+        chunks.push(listChunk.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return chunks;
 }
 
 function readString(
