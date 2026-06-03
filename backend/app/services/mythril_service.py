@@ -46,6 +46,17 @@ def _is_excluded_sol_file(path: Path, workspace_dir: Path) -> bool:
 
 
 def _collect_solidity_targets(file_path: Path) -> tuple[Path, list[str]]:
+    if file_path.is_dir():
+        workspace_dir = file_path
+
+        sol_files = [
+            sol_file.relative_to(workspace_dir).as_posix()
+            for sol_file in workspace_dir.rglob("*.sol")
+            if not _is_excluded_sol_file(sol_file, workspace_dir)
+        ]
+
+        return workspace_dir, sorted(sol_files)
+
     if file_path.name == "foundry.toml":
         workspace_dir = file_path.parent
 
@@ -116,7 +127,6 @@ def run_mythril_scan(project_file_path: str) -> list[dict]:
                 "solc --version; "
                 f"echo 'Analyzing: {quoted_workspace_target}'; "
                 f"myth analyze {quoted_workspace_target} "
-                "--solv 0.8.20 "
                 "--execution-timeout 60 "
                 "--parallel-solving"
             ),

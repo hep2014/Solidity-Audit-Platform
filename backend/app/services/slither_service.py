@@ -81,23 +81,57 @@ def _normalize_detector(detector: dict) -> dict:
         "tool": "slither",
     }
 
+EXCLUDED_PROJECT_DIRS = {
+    "lib",
+    "node_modules",
+    "out",
+    "cache",
+    "broadcast",
+}
+
+
+def _find_foundry_root(path: Path) -> Path | None:
+    if path.is_file() and path.name == "foundry.toml":
+        return path.parent
+
+    if path.is_file():
+        candidate = path.parent / "foundry.toml"
+        return path.parent if candidate.exists() else None
+
+    direct_candidate = path / "foundry.toml"
+
+    if direct_candidate.exists():
+        return path
+
+    for foundry_toml in path.rglob("foundry.toml"):
+        relative_parts = foundry_toml.relative_to(path).parts
+
+        if any(part in EXCLUDED_PROJECT_DIRS for part in relative_parts):
+            continue
+
+        return foundry_toml.parent
+
+    return None
+
 
 def run_slither_scan(project_file_path: str) -> list[dict]:
     file_path = Path(project_file_path).resolve()
 
-    if not file_path.exists():
-        return [
-            {
-                "severity": "high",
-                "rule": "SLITHER_FILE_NOT_FOUND",
-                "message": f"Project file not found: {file_path}",
-                "line": None,
-                "tool": "slither",
-            }
-        ]
+    foundry_root = _find_foundry_root(file_path)
 
-    workspace_dir = file_path.parent
-    target_file = file_path.name
+    if foundry_root is not None:
+        workspace_dir = foundry_root
+        target_file = "."
+    elif file_path.is_dir():
+        workspace_dir = file_path
+        target_file = "."
+    elif file_path.name == "foundry.toml":
+        workspace_dir = file_path.parent
+        target_file = "."
+    else:
+        workspace_dir = file_path.parent
+        target_file = file_path.name
+
     quoted_target_file = shlex.quote(target_file)
 
     command = [
@@ -107,8 +141,20 @@ def run_slither_scan(project_file_path: str) -> list[dict]:
             "set +e; "
             "export HOME=/tmp; "
             "export TMPDIR=/tmp; "
-            "mkdir -p /tmp/slither; "
+            "export SOLC=/usr/local/bin/solc; "
+            "export FOUNDRY_SOLC=/usr/local/bin/solc; "
+            "export FOUNDRY_OFFLINE=true; "
+            "export FOUNDRY_CACHE_PATH=/tmp/foundry-cache; "
+            "export FOUNDRY_OUT=/tmp/foundry-out; "
+            "mkdir -p /tmp/slither /tmp/foundry-cache /tmp/foundry-out; "
+            "echo 'Using forge:' 1>&2; "
+            "which forge 1>&2; "
+            "forge --version 1>&2; "
+            "echo 'Using solc:' 1>&2; "
+            "which solc 1>&2; "
+            "solc --version 1>&2; "
             f"slither {quoted_target_file} "
+            "--solc /usr/local/bin/solc "
             "--json /tmp/slither/slither-report.json "
             "> /tmp/slither/slither-stdout.log "
             "2> /tmp/slither/slither-stderr.log; "

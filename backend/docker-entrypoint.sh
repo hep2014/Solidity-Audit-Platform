@@ -1,8 +1,9 @@
 #!/usr/bin/env sh
 set -e
 
-echo "Waiting for database migrations..."
-alembic upgrade head
+if [ "${RUN_MIGRATIONS:-false}" = "true" ]; then
+  echo "Running database migrations..."
+  alembic upgrade head
+fi
 
-echo "Starting backend API..."
 exec "$@"

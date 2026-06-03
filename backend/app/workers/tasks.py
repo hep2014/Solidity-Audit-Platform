@@ -56,7 +56,10 @@ def _get_project_or_raise(db: Session, analysis: Analysis) -> Project:
 
     return project
 
-def _get_project_entrypoint_path(project: Project) -> str:
+def _get_project_analysis_path(project: Project) -> str:
+    if project.root_path and project.project_type in {"foundry", "hardhat", "multi_file"}:
+        return project.root_path
+
     if project.entrypoint_path:
         return project.entrypoint_path
 
@@ -75,10 +78,10 @@ def _resolve_analysis_project_paths(
     analysis = _get_analysis_or_raise(db, analysis_id)
     project = _get_project_or_raise(db, analysis)
 
-    entrypoint_path = _get_project_entrypoint_path(project)
+    analysis_path = _get_project_analysis_path(project)
     root_path = _get_project_root_path(project)
 
-    return analysis, project, entrypoint_path, root_path
+    return analysis, project, analysis_path, root_path
 
 def _get_project_entrypoint(db: Session, analysis: Analysis) -> str:
     project = analysis.project
@@ -364,13 +367,71 @@ def _run_tool_task(
         db.close()
 
 
-def _run_basic_scanner(project_file_path: str) -> list[dict]:
-    content = Path(project_file_path).read_text(
-        encoding="utf-8",
-        errors="ignore",
+EXCLUDED_SOLIDITY_DIRS = {
+    "test",
+    "tests",
+    "script",
+    "scripts",
+    "lib",
+    "node_modules",
+    "out",
+    "cache",
+    "broadcast",
+}
+
+
+def _is_excluded_solidity_file(path: Path, root: Path) -> bool:
+    relative_parts = path.relative_to(root).parts
+    return any(part in EXCLUDED_SOLIDITY_DIRS for part in relative_parts)
+
+
+def _collect_solidity_files(project_path: str) -> list[Path]:
+    path = Path(project_path).resolve()
+
+    if path.is_file() and path.suffix == ".sol":
+        return [path]
+
+    if path.is_file():
+        root = path.parent
+    else:
+        root = path
+
+    return sorted(
+        sol_file
+        for sol_file in root.rglob("*.sol")
+        if not _is_excluded_solidity_file(sol_file, root)
     )
 
-    return scan_solidity(content)
+
+def _run_basic_scanner(project_file_path: str) -> list[dict]:
+    path = Path(project_file_path).resolve()
+    sol_files = _collect_solidity_files(project_file_path)
+
+    if not sol_files:
+        return [
+            {
+                "severity": "high",
+                "rule": "BASIC_NO_SOLIDITY_FILES",
+                "message": f"No Solidity files found for basic scan: {path}",
+                "line": None,
+                "tool": "basic-scanner",
+            }
+        ]
+
+    findings: list[dict] = []
+
+    root = path if path.is_dir() else path.parent
+
+    for sol_file in sol_files:
+        content = sol_file.read_text(encoding="utf-8", errors="ignore")
+        relative_path = sol_file.relative_to(root).as_posix()
+
+        for finding in scan_solidity(content):
+            finding["file_path"] = relative_path
+            finding["tool"] = "basic-scanner"
+            findings.append(finding)
+
+    return findings
 
 
 def _run_manual_checklist(_: str) -> list[dict]:

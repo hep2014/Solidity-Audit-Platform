@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: audit
       POSTGRES_PASSWORD: audit
       POSTGRES_DB: audit
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -19,8 +17,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: solidity-audit-redis
-    ports:
-      - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -37,6 +33,10 @@ services:
     container_name: solidity-audit-backend-api
     env_file:
       - ./backend/.env
+    environment:
+      RUN_MIGRATIONS: "true"
+      DOCKER_CONTAINER_STORAGE_DIR: /app/storage
+      DOCKER_HOST_STORAGE_DIR: /home/hep2014/PycharmProjects/solidity/backend/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,7 +47,6 @@ services:
     volumes:
       - ./backend/storage:/app/storage
       - /var/run/docker.sock:/var/run/docker.sock
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   backend-worker:
     build:
@@ -56,6 +55,9 @@ services:
     container_name: solidity-audit-backend-worker
     env_file:
       - ./backend/.env
+    environment:
+      DOCKER_CONTAINER_STORAGE_DIR: /app/storage
+      DOCKER_HOST_STORAGE_DIR: /home/hep2014/PycharmProjects/solidity/backend/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,7 +82,7 @@ services:
     build:
       context: ./analyzers/slither
       dockerfile: Dockerfile
-    image: solidity-audit-slither:local
+    image: solidity-audit-slither:latest
     profiles:
       - analyzers
 
@@ -88,7 +90,7 @@ services:
     build:
       context: ./analyzers/mythril
       dockerfile: Dockerfile
-    image: solidity-audit-mythril:local
+    image: solidity-audit-mythril:latest
     profiles:
       - analyzers
 
@@ -96,7 +98,7 @@ services:
     build:
       context: ./analyzers/foundry
       dockerfile: Dockerfile
-    image: solidity-audit-foundry:local
+    image: solidity-audit-foundry:latest
     profiles:
       - analyzers
 
@@ -104,7 +106,7 @@ services:
     build:
       context: ./analyzers/echidna
       dockerfile: Dockerfile
-    image: solidity-audit-echidna:local
+    image: solidity-audit-echidna:latest
     profiles:
       - analyzers
 

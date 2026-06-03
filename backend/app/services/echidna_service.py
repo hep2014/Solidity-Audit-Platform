@@ -25,7 +25,12 @@ EXCLUDED_DIRS = {
 }
 
 
-def _build_message(stdout: str, stderr: str, exit_code: int, timed_out: bool = False) -> str:
+def _build_message(
+    stdout: str,
+    stderr: str,
+    exit_code: int,
+    timed_out: bool = False,
+) -> str:
     parts = [f"Exit code: {exit_code}"]
 
     if timed_out:
@@ -47,16 +52,6 @@ def _severity_from_echidna_result(ok: bool, timed_out: bool = False) -> str:
     return "info" if ok else "high"
 
 
-def _find_echidna_config(workspace_dir: Path) -> Path | None:
-    for name in ECHIDNA_CONFIG_NAMES:
-        candidate = workspace_dir / name
-
-        if candidate.exists():
-            return candidate
-
-    return None
-
-
 def _is_excluded_sol_file(path: Path, workspace_dir: Path) -> bool:
     relative_parts = path.relative_to(workspace_dir).parts
     return any(part in EXCLUDED_DIRS for part in relative_parts)
@@ -70,17 +65,92 @@ def _find_solidity_files(workspace_dir: Path) -> list[Path]:
     )
 
 
+def _find_echidna_config(workspace_dir: Path) -> Path | None:
+    for name in ECHIDNA_CONFIG_NAMES:
+        candidate = workspace_dir / name
+
+        if candidate.exists():
+            return candidate
+
+    for config_name in ECHIDNA_CONFIG_NAMES:
+        for candidate in workspace_dir.rglob(config_name):
+            relative_parts = candidate.relative_to(workspace_dir).parts
+
+            if any(part in EXCLUDED_DIRS for part in relative_parts):
+                continue
+
+            return candidate
+
+    return None
+
+
+def _find_project_root(path: Path) -> Path:
+    """
+    Supports both archive layouts:
+
+    1. /uploads/<project_id>/foundry.toml
+       /uploads/<project_id>/echidna.yaml
+       /uploads/<project_id>/src/...
+
+    2. /uploads/<project_id>/vuln-test/foundry.toml
+       /uploads/<project_id>/vuln-test/echidna.yaml
+       /uploads/<project_id>/vuln-test/src/...
+    """
+    if path.is_file():
+        return path.parent
+
+    direct_markers = [
+        path / "echidna.yaml",
+        path / "echidna.yml",
+        path / "foundry.toml",
+        path / "src",
+    ]
+
+    if any(marker.exists() for marker in direct_markers):
+        return path
+
+    for config_name in ECHIDNA_CONFIG_NAMES:
+        for config_path in path.rglob(config_name):
+            relative_parts = config_path.relative_to(path).parts
+
+            if any(part in EXCLUDED_DIRS for part in relative_parts):
+                continue
+
+            return config_path.parent
+
+    for foundry_toml in path.rglob("foundry.toml"):
+        relative_parts = foundry_toml.relative_to(path).parts
+
+        if any(part in EXCLUDED_DIRS for part in relative_parts):
+            continue
+
+        return foundry_toml.parent
+
+    return path
+
+
 def _resolve_workspace_and_target(file_path: Path) -> tuple[Path, str] | tuple[None, None]:
     if file_path.suffix == ".sol":
         workspace_dir = file_path.parent
         target_file = file_path.name
         return workspace_dir, target_file
 
-    workspace_dir = file_path.parent
+    workspace_dir = _find_project_root(file_path)
     sol_files = _find_solidity_files(workspace_dir)
 
     if not sol_files:
         return None, None
+
+    config_path = _find_echidna_config(workspace_dir)
+
+    if config_path is not None:
+        config_text = config_path.read_text(encoding="utf-8", errors="ignore")
+
+        for sol_file in sol_files:
+            relative_path = sol_file.relative_to(workspace_dir).as_posix()
+
+            if relative_path in config_text or sol_file.name in config_text:
+                return workspace_dir, relative_path
 
     target_file = sol_files[0].relative_to(workspace_dir).as_posix()
     return workspace_dir, target_file
@@ -138,6 +208,7 @@ def run_echidna_scan(project_file_path: str) -> list[dict]:
     runner = DockerRunner(
         image=settings.echidna_image,
         timeout_seconds=300,
+        memory_limit="2g",
     )
 
     command = [
@@ -150,20 +221,21 @@ def run_echidna_scan(project_file_path: str) -> list[dict]:
             "export HOME=/tmp; "
             "export TMPDIR=/tmp; "
             "mkdir -p /tmp/echidna-cache; "
-
             "rm -rf /tmp/echidna_project; "
             "mkdir -p /tmp/echidna_project; "
 
-            # Не копируем foundry.toml, out, cache, lib, test,
-            # чтобы Echidna не проваливалась в crytic-compile foundry mode.
-            "if [ -d /workspace/src ]; then cp -r /workspace/src /tmp/echidna_project/src; fi; "
+            "if [ -d /workspace/src ]; then "
+            "cp -r /workspace/src /tmp/echidna_project/src; "
+            "fi; "
 
             f"mkdir -p /tmp/echidna_project/$(dirname {quoted_relative_config}); "
-            f"cp /workspace/{quoted_relative_config} /tmp/echidna_project/{quoted_relative_config}; "
+            f"cp /workspace/{quoted_relative_config} "
+            f"/tmp/echidna_project/{quoted_relative_config}; "
 
             f"if [ -f /workspace/{quoted_target_file} ]; then "
             f"mkdir -p /tmp/echidna_project/{quoted_target_dir}; "
-            f"cp /workspace/{quoted_target_file} /tmp/echidna_project/{quoted_target_file}; "
+            f"cp /workspace/{quoted_target_file} "
+            f"/tmp/echidna_project/{quoted_target_file}; "
             "fi; "
 
             "cd /tmp/echidna_project; "
@@ -173,7 +245,12 @@ def run_echidna_scan(project_file_path: str) -> list[dict]:
             "solc --version || true; "
 
             f"echo 'Running Echidna target: {quoted_target_file}'; "
-            f"echidna {quoted_target_file} --config {quoted_relative_config}"
+            f"echo 'Using Echidna config: {quoted_relative_config}'; "
+            f"echidna {quoted_target_file} "
+            f"--config {quoted_relative_config} "
+            "--workers 1 "
+            "--test-limit 5000 "
+            "--shrink-limit 200"
         ),
     ]
 
@@ -192,7 +269,9 @@ def run_echidna_scan(project_file_path: str) -> list[dict]:
             ),
             "rule": rule,
             "message": (
-                f"Target file: {target_file}\n\n"
+                f"Workspace: {workspace_dir}\n"
+                f"Target file: {target_file}\n"
+                f"Config file: {relative_config}\n\n"
                 + _build_message(
                     stdout=result.stdout,
                     stderr=result.stderr,

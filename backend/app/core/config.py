@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     max_archive_files: int = 500
     max_sol_files: int = 200
 
+    docker_container_storage_dir: str = "/app/storage"
+    docker_host_storage_dir: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

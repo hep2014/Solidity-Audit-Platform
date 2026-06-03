@@ -28,6 +28,38 @@ def _is_foundry_project(workspace_dir: Path) -> bool:
     return (workspace_dir / "foundry.toml").exists()
 
 
+EXCLUDED_PROJECT_DIRS = {
+    "lib",
+    "node_modules",
+    "out",
+    "cache",
+    "broadcast",
+}
+
+
+def _find_foundry_root(path: Path) -> Path | None:
+    if path.is_file() and path.name == "foundry.toml":
+        return path.parent
+
+    if path.is_file():
+        candidate = path.parent / "foundry.toml"
+        return path.parent if candidate.exists() else None
+
+    direct_candidate = path / "foundry.toml"
+
+    if direct_candidate.exists():
+        return path
+
+    for foundry_toml in path.rglob("foundry.toml"):
+        relative_parts = foundry_toml.relative_to(path).parts
+
+        if any(part in EXCLUDED_PROJECT_DIRS for part in relative_parts):
+            continue
+
+        return foundry_toml.parent
+
+    return None
+
 def run_foundry_scan(project_file_path: str) -> list[dict]:
     file_path = Path(project_file_path).resolve()
 
@@ -42,12 +74,30 @@ def run_foundry_scan(project_file_path: str) -> list[dict]:
             }
         ]
 
-    workspace_dir = file_path.parent
+    foundry_root = _find_foundry_root(file_path)
 
-    if file_path.name == "foundry.toml":
+    if foundry_root is not None:
+        workspace_dir = foundry_root
         target_file = None
-    else:
+    elif file_path.is_dir():
+        workspace_dir = file_path
+        target_file = None
+    elif file_path.suffix == ".sol":
+        workspace_dir = file_path.parent
         target_file = file_path.name
+    else:
+        return [
+            {
+                "severity": "medium",
+                "rule": "FOUNDRY_TARGET_NOT_FOUND",
+                "message": (
+                    "Foundry target file was not resolved. "
+                    f"Input path: {file_path}"
+                ),
+                "line": None,
+                "tool": "foundry",
+            }
+        ]
 
     runner = DockerRunner(
         image=settings.foundry_image,
@@ -80,6 +130,9 @@ def run_foundry_scan(project_file_path: str) -> list[dict]:
                 "echo 'Using solc:'; "
                 "which solc; "
                 "solc --version; "
+                "echo 'Using forge:'; "
+                "which forge; "
+                "forge --version; "
                 "forge build --use /usr/local/bin/solc; "
                 "forge test --use /usr/local/bin/solc -vvv"
             ),
@@ -117,6 +170,9 @@ def run_foundry_scan(project_file_path: str) -> list[dict]:
                 "echo 'Using solc:'; "
                 "which solc; "
                 "solc --version; "
+                "echo 'Using forge:'; "
+                "which forge; "
+                "forge --version; "
                 "forge build --use /usr/local/bin/solc; "
                 "forge test --use /usr/local/bin/solc -vvv"
             ),
