@@ -2631,3 +2631,68 @@ pre {
     width: 100%;
   }
 }
+
+.cfg-flow-graph {
+  display: grid;
+  gap: 10px;
+}
+
+.cfg-flow-item {
+  display: grid;
+  gap: 10px;
+}
+
+.cfg-node {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.cfg-node-condition {
+  border-color: rgba(250, 204, 21, 0.28);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(250, 204, 21, 0.09), transparent 14rem),
+    rgba(0, 0, 0, 0.22);
+}
+
+.cfg-node-external-call {
+  border-color: rgba(251, 113, 133, 0.3);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(251, 113, 133, 0.1), transparent 14rem),
+    rgba(0, 0, 0, 0.22);
+}
+
+.cfg-node-statement {
+  border-color: rgba(110, 168, 254, 0.22);
+}
+
+.cfg-node-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.cfg-node-top span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.cfg-node code {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: #d8dee9;
+  line-height: 1.55;
+}
+
+.cfg-flow-arrow {
+  width: fit-content;
+  margin-left: 22px;
+  color: var(--text-muted);
+  font-size: 22px;
+  line-height: 1;
+}
