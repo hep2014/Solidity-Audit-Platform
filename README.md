@@ -8,13 +8,6 @@
 - свободные порты (8000 для backend API, 5173 для frontend)
 - достаточный объем памяти для контейнеров. Рекомендуется не менее 6–8 ГБ свободной RAM, особенно при запуске Mythril и Echidna.
 
-В docker-compose.yml для backend-api и backend-worker должен быть указан корректный абсолютный путь к локальному storage на хосте:
-```
-DOCKER_HOST_STORAGE_DIR: /home/hep2014/PycharmProjects/solidity/backend/storage
-DOCKER_CONTAINER_STORAGE_DIR: /app/storage
-```
-Значение ```DOCKER_HOST_STORAGE_DIR``` необходимо заменить на путь, соответствующий локальному расположению проекта.
-
 ## Полный запуск проекта
 
 Сначала необходимо собрать образы:
