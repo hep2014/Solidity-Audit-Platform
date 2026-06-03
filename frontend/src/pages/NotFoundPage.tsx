@@ -10,7 +10,7 @@ export function NotFoundPage() {
       <CardHeader
         eyebrow="404"
         title="Страница не найдена"
-        description="Такого маршрута во frontend-приложении нет."
+        description="Запрошенный раздел отсутствует или был перемещен."
         action={
           <Link to="/">
             <Button variant="secondary" icon={<ArrowLeft size={16} />}>

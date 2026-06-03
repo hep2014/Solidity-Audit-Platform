@@ -7,8 +7,8 @@ import { Badge, severityTone } from "../shared/ui/Badge";
 import { FileDropzone } from "../shared/ui/FileDropzone";
 import { quickScanSolidity } from "../shared/api/scan";
 import { ApiError } from "../shared/api/http";
-import type { ScanResponse } from "../shared/types/api";
-import { getSeverityLabel } from "../shared/utils/severity";
+import type { ScanIssue, ScanResponse } from "../shared/types/api";
+import { getSeverityRuLabel, normalizeSeverity } from "../domain/severity";
 
 export function QuickScanPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -45,17 +45,17 @@ export function QuickScanPage() {
     <div className="page-grid page-grid-two">
       <Card>
         <CardHeader
-          eyebrow="Quick Scan"
-          title="Быстрая проверка Solidity-файла"
-          description="Этот режим использует `/api/scan/solidity` и не создает проект в базе. Подходит для мгновенной проверки одного `.sol` файла."
+          eyebrow="Быстрая проверка"
+          title="Проверить один Solidity-файл"
+          description="Режим для мгновенной эвристической проверки одного `.sol` файла без добавления проекта в общий список."
         />
 
         <div className="card-body page-grid">
           <FileDropzone
             value={file}
             accept=".sol"
-            title="Загрузите .sol файл"
-            description="Quick Scan принимает только одиночный Solidity-файл."
+            title="Выберите `.sol` файл"
+            description="Быстрая проверка принимает только одиночный Solidity-файл."
             disabled={scanning}
             onChange={setFile}
           />
@@ -71,9 +71,15 @@ export function QuickScanPage() {
             <Button
               disabled={!file || scanning}
               onClick={handleScan}
-              icon={scanning ? <Loader2 className="spin" size={17} /> : <FileSearch size={17} />}
+              icon={
+                scanning ? (
+                  <Loader2 className="spin" size={17} />
+                ) : (
+                  <FileSearch size={17} />
+                )
+              }
             >
-              {scanning ? "Проверка..." : "Запустить Quick Scan"}
+              {scanning ? "Проверка..." : "Запустить проверку"}
             </Button>
 
             <Button
@@ -90,27 +96,27 @@ export function QuickScanPage() {
 
       <Card>
         <CardHeader
-          eyebrow="Result"
-          title="Результат проверки"
-          description="Basic scanner ищет отсутствие SPDX, pragma, contract declaration, а также tx.origin, selfdestruct, delegatecall, low-level call и block.timestamp."
+          eyebrow="Результат"
+          title="Итоги быстрой проверки"
+          description="Сканер проверяет базовые признаки риска: отсутствие pragma/SPDX, использование tx.origin, selfdestruct, delegatecall, низкоуровневых вызовов и block.timestamp."
         />
 
         <div className="card-body">
           {!result ? (
             <div className="empty-state">
               <strong>Результатов пока нет</strong>
-              <p>Выберите `.sol` файл и запустите быструю проверку.</p>
+              <p>Выберите `.sol` файл и запустите проверку.</p>
             </div>
           ) : (
             <div className="quick-scan-result">
               <div className="metric-grid">
                 <div className="metric-card">
-                  <span>Filename</span>
+                  <span>Файл</span>
                   <strong>{result.filename}</strong>
                 </div>
 
                 <div className="metric-card">
-                  <span>Total issues</span>
+                  <span>Найдено записей</span>
                   <strong>{result.total}</strong>
                 </div>
               </div>
@@ -118,23 +124,32 @@ export function QuickScanPage() {
               {!result.issues.length ? (
                 <div className="empty-state">
                   <strong>Проблем не найдено</strong>
-                  <p>Scanner не обнаружил известных простых паттернов.</p>
+                  <p>
+                    Базовый сканер не обнаружил известных эвристических
+                    паттернов риска.
+                  </p>
                 </div>
               ) : (
                 <div className="quick-issue-list">
                   {result.issues.map((issue, index) => (
-                    <article key={`${issue.rule}-${index}`} className="quick-issue-card">
+                    <article
+                      key={`${issue.rule}-${index}`}
+                      className="quick-issue-card"
+                    >
                       <header>
                         <Badge tone={severityTone(issue.severity)}>
-                          {getSeverityLabel(issue.severity)}
+                          {getSeverityRuLabel(normalizeSeverity(issue.severity))}
                         </Badge>
 
                         <code>{issue.rule}</code>
                       </header>
 
-                      <p>{issue.message}</p>
+                      <h3>{getIssueTitle(issue)}</h3>
+                      <p>{getIssueDescription(issue)}</p>
 
-                      <span>Line: {issue.line ?? "—"}</span>
+                      <span>
+                        Строка: {issue.line ?? "—"}
+                      </span>
                     </article>
                   ))}
                 </div>
@@ -147,6 +162,54 @@ export function QuickScanPage() {
   );
 }
 
+function getIssueTitle(issue: ScanIssue): string {
+  switch (issue.rule) {
+    case "EMPTY_FILE":
+      return "Пустой файл";
+    case "NO_SPDX":
+      return "Отсутствует SPDX-лицензия";
+    case "NO_PRAGMA":
+      return "Отсутствует pragma solidity";
+    case "NO_CONTRACT":
+      return "Не найдено объявление контракта";
+    case "TX_ORIGIN":
+      return "Риск авторизации через tx.origin";
+    case "SELFDESTRUCT":
+      return "Опасная операция selfdestruct";
+    case "DELEGATECALL":
+      return "Опасный delegatecall";
+    case "LOW_LEVEL_CALL":
+      return "Низкоуровневый внешний вызов";
+    case "BLOCK_TIMESTAMP":
+      return "Зависимость от block.timestamp";
+    default:
+      return "Найдено предупреждение";
+  }
+}
+
+function getIssueDescription(issue: ScanIssue): string {
+  switch (issue.rule) {
+    case "NO_SPDX":
+      return "В файле не указан идентификатор лицензии. Рекомендуется добавить строку вида `// SPDX-License-Identifier: MIT` или другой корректный SPDX identifier.";
+    case "NO_PRAGMA":
+      return "В файле не задана версия компилятора Solidity. Рекомендуется явно указать совместимый диапазон версии.";
+    case "NO_CONTRACT":
+      return "Сканер не обнаружил объявление контракта. Проверьте, что загружен корректный Solidity-файл.";
+    case "TX_ORIGIN":
+      return "Использование tx.origin в авторизации может привести к phishing-сценариям через промежуточный контракт.";
+    case "SELFDESTRUCT":
+      return "selfdestruct может уничтожить контракт или привести к опасному изменению жизненного цикла системы.";
+    case "DELEGATECALL":
+      return "delegatecall выполняет внешний код в контексте storage текущего контракта и требует строгого контроля target-адреса.";
+    case "LOW_LEVEL_CALL":
+      return "Низкоуровневый вызов требует проверки результата, порядка обновления состояния и риска реентерабельности.";
+    case "BLOCK_TIMESTAMP":
+      return "block.timestamp не следует использовать как надежный источник случайности или критическое условие бизнес-логики.";
+    default:
+      return issue.message;
+  }
+}
+
 function getErrorMessage(exception: unknown): string {
   if (exception instanceof ApiError) {
     return exception.message;
@@ -156,5 +219,5 @@ function getErrorMessage(exception: unknown): string {
     return exception.message;
   }
 
-  return "Unknown error";
+  return "Неизвестная ошибка";
 }

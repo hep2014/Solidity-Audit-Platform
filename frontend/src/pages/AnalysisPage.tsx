@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Download,
@@ -13,8 +13,8 @@ import {
 import { Card, CardHeader } from "../shared/ui/Card";
 import { Button } from "../shared/ui/Button";
 import { Badge, statusTone } from "../shared/ui/Badge";
-import { FindingTable } from "../shared/ui/FindingTable";
-import { TerminalLog } from "../shared/ui/TerminalLog";
+import { AnalysisResultsView } from "../features/analysisResults/AnalysisResultsView";
+import { AnalysisLogsPanel } from "../features/analysisResults/AnalysisLogsPanel";
 import {
   FULL_PIPELINE_STEPS,
   PipelineSteps
@@ -32,10 +32,10 @@ import {
 } from "../shared/api/analyses";
 import { connectAnalysisWs } from "../shared/api/ws";
 import type {
+  AnalysisLogRead,
   AnalysisRead,
   AnalysisReport,
-  FindingRead,
-  AnalysisLogRead
+  FindingRead
 } from "../shared/types/api";
 import { formatDateTime } from "../shared/utils/format";
 import {
@@ -44,10 +44,10 @@ import {
   isActiveStatus,
   isTerminalStatus
 } from "../shared/utils/status";
-import { sortSeverityEntries } from "../shared/utils/severity";
 
 export function AnalysisPage() {
   const { analysisId } = useParams<{ analysisId: string }>();
+  const navigate = useNavigate();
 
   const [analysis, setAnalysis] = useState<AnalysisRead | null>(null);
   const [report, setReport] = useState<AnalysisReport | null>(null);
@@ -76,15 +76,8 @@ export function AnalysisPage() {
     [logs]
   );
 
-  const severityEntries = useMemo(() => {
-    const source = report?.summary.by_severity || {};
-    return sortSeverityEntries(Object.entries(source));
-  }, [report]);
-
-  const toolEntries = useMemo(() => {
-    const source = report?.summary.by_tool || {};
-    return Object.entries(source).sort((a, b) => b[1] - a[1]);
-  }, [report]);
+  const progressTone = getProgressTone(analysis?.status);
+  const analysisTitle = getAnalysisTitle(analysis);
 
   const loadAnalysisData = useCallback(
     async (silent = false) => {
@@ -115,6 +108,8 @@ export function AnalysisPage() {
         if (isTerminalStatus(analysisResponse.status)) {
           const reportResponse = await getAnalysisReport(analysisId);
           setReport(reportResponse);
+        } else {
+          setReport(null);
         }
       } catch (exception) {
         setError(getErrorMessage(exception));
@@ -132,6 +127,7 @@ export function AnalysisPage() {
     }
 
     setActionLoading("cancel");
+    setError(null);
 
     try {
       const response = await cancelAnalysis(analysisId);
@@ -150,12 +146,11 @@ export function AnalysisPage() {
     }
 
     setActionLoading("retry");
+    setError(null);
 
     try {
       const response = await retryAnalysis(analysisId, undefined, true);
-      setAnalysis(response);
-      window.history.pushState(null, "", `/analyses/${response.id}`);
-      window.location.reload();
+      navigate(`/analyses/${response.id}`);
     } catch (exception) {
       setError(getErrorMessage(exception));
     } finally {
@@ -168,21 +163,24 @@ export function AnalysisPage() {
       return;
     }
 
-    const confirmed = window.confirm("Удалить анализ? Findings и logs также будут удалены.");
+    const confirmed = window.confirm(
+      "Удалить анализ? Все результаты, findings и технические логи этого запуска также будут удалены."
+    );
 
     if (!confirmed) {
       return;
     }
 
     setActionLoading("delete");
+    setError(null);
 
     try {
       await deleteAnalysis(analysisId);
 
       if (analysis?.project_id) {
-        window.location.href = `/projects/${analysis.project_id}`;
+        navigate(`/projects/${analysis.project_id}`);
       } else {
-        window.location.href = "/projects";
+        navigate("/projects");
       }
     } catch (exception) {
       setError(getErrorMessage(exception));
@@ -273,7 +271,7 @@ export function AnalysisPage() {
         <div className="card-body">
           <div className="loading-state">
             <Loader2 className="spin" size={22} />
-            <span>Загрузка анализа...</span>
+            <span>Загрузка данных анализа...</span>
           </div>
         </div>
       </Card>
@@ -286,7 +284,8 @@ export function AnalysisPage() {
         <div className="card-body">
           <div className="empty-state">
             <strong>Анализ не найден</strong>
-            <p>{error || "Backend не вернул данные анализа."}</p>
+            <p>{error || "Сервер не вернул данные анализа."}</p>
+
             <Link to="/projects">
               <Button variant="secondary" icon={<ArrowLeft size={16} />}>
                 Назад к проектам
@@ -302,9 +301,9 @@ export function AnalysisPage() {
     <div className="page-grid">
       <Card>
         <CardHeader
-          eyebrow="Analysis"
-          title={getStepLabel(analysis.current_step)}
-          description="Страница live-мониторинга анализа: WebSocket-статус, прогресс, логи инструментов, findings и итоговый report."
+          eyebrow="Анализ"
+          title={analysisTitle}
+          description="Страница мониторинга запуска: статус, прогресс, этап выполнения, результаты классификации и технические логи анализаторов."
           action={
             <div className="actions-row">
               <Link to={`/projects/${analysis.project_id}`}>
@@ -317,7 +316,13 @@ export function AnalysisPage() {
                 variant="secondary"
                 onClick={() => loadAnalysisData(true)}
                 disabled={refreshing}
-                icon={refreshing ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
+                icon={
+                  refreshing ? (
+                    <Loader2 className="spin" size={16} />
+                  ) : (
+                    <RefreshCw size={16} />
+                  )
+                }
               >
                 Обновить
               </Button>
@@ -327,9 +332,15 @@ export function AnalysisPage() {
                   variant="danger"
                   onClick={handleCancel}
                   disabled={actionLoading !== null}
-                  icon={actionLoading === "cancel" ? <Loader2 className="spin" size={16} /> : <Square size={16} />}
+                  icon={
+                    actionLoading === "cancel" ? (
+                      <Loader2 className="spin" size={16} />
+                    ) : (
+                      <Square size={16} />
+                    )
+                  }
                 >
-                  Отменить
+                  Остановить
                 </Button>
               )}
 
@@ -338,9 +349,15 @@ export function AnalysisPage() {
                   variant="secondary"
                   onClick={handleRetry}
                   disabled={actionLoading !== null}
-                  icon={actionLoading === "retry" ? <Loader2 className="spin" size={16} /> : <RotateCcw size={16} />}
+                  icon={
+                    actionLoading === "retry" ? (
+                      <Loader2 className="spin" size={16} />
+                    ) : (
+                      <RotateCcw size={16} />
+                    )
+                  }
                 >
-                  Retry
+                  Повторить
                 </Button>
               )}
 
@@ -348,7 +365,13 @@ export function AnalysisPage() {
                 variant="danger"
                 onClick={handleDelete}
                 disabled={actionLoading !== null}
-                icon={actionLoading === "delete" ? <Loader2 className="spin" size={16} /> : <Trash2 size={16} />}
+                icon={
+                  actionLoading === "delete" ? (
+                    <Loader2 className="spin" size={16} />
+                  ) : (
+                    <Trash2 size={16} />
+                  )
+                }
               >
                 Удалить
               </Button>
@@ -368,7 +391,8 @@ export function AnalysisPage() {
             <ProgressRing
               value={analysis.progress}
               active={isActiveStatus(analysis.status)}
-              label="progress"
+              tone={progressTone}
+              label="готово"
               size={128}
             />
 
@@ -379,43 +403,50 @@ export function AnalysisPage() {
                 </Badge>
 
                 <Badge tone={wsConnected ? "success" : "neutral"}>
-                  WebSocket {wsConnected ? "connected" : "closed"}
+                  {wsConnected ? "Live-обновление активно" : "Live-обновление закрыто"}
                 </Badge>
 
                 <Badge>{analysis.progress}%</Badge>
               </div>
 
-              <dl className="details-grid">
+              <dl className="details-grid details-grid-safe">
                 <div>
-                  <dt>Analysis ID</dt>
+                  <dt>ID анализа</dt>
                   <dd>{analysis.id}</dd>
                 </div>
+
                 <div>
-                  <dt>Project ID</dt>
+                  <dt>ID проекта</dt>
                   <dd>{analysis.project_id}</dd>
                 </div>
+
                 <div>
-                  <dt>Celery task</dt>
+                  <dt>Задача Celery</dt>
                   <dd>{analysis.celery_task_id || "—"}</dd>
                 </div>
+
                 <div>
-                  <dt>Current step</dt>
-                  <dd>{analysis.current_step || "—"}</dd>
+                  <dt>Текущий этап</dt>
+                  <dd>{getStepLabel(analysis.current_step)}</dd>
                 </div>
+
                 <div>
-                  <dt>Created</dt>
+                  <dt>Создан</dt>
                   <dd>{formatDateTime(analysis.created_at)}</dd>
                 </div>
+
                 <div>
-                  <dt>Updated</dt>
+                  <dt>Обновлен</dt>
                   <dd>{formatDateTime(analysis.updated_at)}</dd>
                 </div>
+
                 <div>
-                  <dt>Started</dt>
+                  <dt>Запущен</dt>
                   <dd>{formatDateTime(analysis.started_at)}</dd>
                 </div>
+
                 <div>
-                  <dt>Finished</dt>
+                  <dt>Завершен</dt>
                   <dd>{formatDateTime(analysis.finished_at)}</dd>
                 </div>
               </dl>
@@ -427,9 +458,9 @@ export function AnalysisPage() {
       <section className="page-grid page-grid-two">
         <Card>
           <CardHeader
-            eyebrow="Pipeline"
+            eyebrow="Этапы"
             title="Ход выполнения"
-            description="Для full pipeline шаги постепенно отмечаются по логам. Для одиночного анализа будет активен соответствующий инструмент."
+            description="Для полного анализа шаги отмечаются по техническим логам. Для одиночного анализа активным будет соответствующий инструмент."
           />
 
           <div className="card-body">
@@ -445,9 +476,9 @@ export function AnalysisPage() {
 
         <Card>
           <CardHeader
-            eyebrow="Summary"
-            title="Сводка findings"
-            description="Сводка появляется после построения report. Во время выполнения можно смотреть текущие findings ниже."
+            eyebrow="Сводка"
+            title="Итоговая оценка"
+            description="Сводка строится на frontend-классификации: уязвимости, ошибки анализаторов, ручные проверки и CFG/DFG-данные считаются отдельно."
             action={
               report && (
                 <Button
@@ -455,65 +486,27 @@ export function AnalysisPage() {
                   onClick={downloadReportJson}
                   icon={<Download size={16} />}
                 >
-                  JSON
+                  Скачать JSON
                 </Button>
               )
             }
           />
 
           <div className="card-body">
-            {!report ? (
-              <div className="empty-state">
-                <strong>Report еще не построен</strong>
-                <p>Итоговый отчет доступен после terminal status: SUCCESS, FAILED, TIMEOUT, PARTIAL_SUCCESS или CANCELLED.</p>
-              </div>
-            ) : (
-              <div className="summary-grid">
-                <div className="metric-card">
-                  <span>Total findings</span>
-                  <strong>{report.summary.total}</strong>
-                </div>
-
-                {severityEntries.map(([severity, count]) => (
-                  <div key={severity} className="metric-card">
-                    <span>{severity}</span>
-                    <strong>{count}</strong>
-                  </div>
-                ))}
-
-                {toolEntries.map(([tool, count]) => (
-                  <div key={tool} className="metric-card">
-                    <span>{tool}</span>
-                    <strong>{count}</strong>
-                  </div>
-                ))}
-              </div>
-            )}
+            <AnalysisResultsView findings={findings} logs={logs} />
           </div>
         </Card>
       </section>
 
       <Card>
         <CardHeader
-          eyebrow="Logs"
-          title="Логи выполнения"
-          description="Здесь отображается stdout, stderr и error_message каждого инструмента. Это удобно для поиска места, где ломается Slither, Mythril, Foundry или Echidna."
+          eyebrow="Логи"
+          title="Технический вывод анализаторов"
+          description="Здесь отдельно отображаются stdout, stderr и сообщения об ошибках. Эти данные нужны для диагностики и не смешиваются со списком уязвимостей."
         />
 
         <div className="card-body">
-          <TerminalLog logs={logs} />
-        </div>
-      </Card>
-
-      <Card>
-        <CardHeader
-          eyebrow="Findings"
-          title="Результаты анализа"
-          description="Нормализованные findings из всех инструментов: severity, rule, tool, location, message, recommendation и references."
-        />
-
-        <div className="card-body">
-          <FindingTable findings={findings} />
+          <AnalysisLogsPanel logs={logs} />
         </div>
       </Card>
     </div>
@@ -544,6 +537,54 @@ function normalizeToolToStep(tool: string): string {
   return tool;
 }
 
+function getProgressTone(status: string | null | undefined) {
+  if (status === "SUCCESS") {
+    return "success";
+  }
+
+  if (status === "PARTIAL_SUCCESS") {
+    return "warning";
+  }
+
+  if (status === "FAILED" || status === "TIMEOUT" || status === "CANCELLED") {
+    return "danger";
+  }
+
+  if (status === "RUNNING" || status === "PENDING") {
+    return "info";
+  }
+
+  return "neutral";
+}
+
+function getAnalysisTitle(analysis: AnalysisRead | null): string {
+  if (!analysis) {
+    return "Анализ";
+  }
+
+  if (analysis.status === "SUCCESS") {
+    return "Анализ успешно завершен";
+  }
+
+  if (analysis.status === "PARTIAL_SUCCESS") {
+    return "Анализ завершен частично";
+  }
+
+  if (analysis.status === "FAILED") {
+    return "Анализ завершился с ошибкой";
+  }
+
+  if (analysis.status === "TIMEOUT") {
+    return "Анализ остановлен по таймауту";
+  }
+
+  if (analysis.status === "CANCELLED") {
+    return "Анализ отменен";
+  }
+
+  return getStepLabel(analysis.current_step);
+}
+
 function getErrorMessage(exception: unknown): string {
   if (exception instanceof ApiError) {
     return exception.message;
@@ -553,5 +594,5 @@ function getErrorMessage(exception: unknown): string {
     return exception.message;
   }
 
-  return "Unknown error";
+  return "Неизвестная ошибка";
 }

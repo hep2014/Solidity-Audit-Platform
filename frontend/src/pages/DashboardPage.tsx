@@ -53,18 +53,21 @@ export function DashboardPage() {
   const latestProjects = projects.slice(0, 4);
   const databaseOk = health?.checks.database ?? false;
   const redisOk = health?.checks.redis ?? false;
+  const servicesReady = health?.status === "ok";
 
   return (
     <div className="page-grid">
       <section className="page-grid page-grid-two">
         <Card>
           <CardHeader
-            eyebrow="Главная панель"
-            title="Центр аудита Solidity"
-            description="Здесь собран общий маршрут работы: загрузка проекта, запуск анализаторов, просмотр прогресса, логов и итогового отчета."
+            eyebrow="Обзор"
+            title="Панель аудита Solidity"
+            description="Единая точка управления проверками: загрузка проекта, запуск анализаторов, отслеживание выполнения, просмотр результатов и технических логов."
             action={
               <Link to="/projects">
-                <Button icon={<FolderKanban size={17} />}>Открыть проекты</Button>
+                <Button icon={<FolderKanban size={17} />}>
+                  Открыть проекты
+                </Button>
               </Link>
             }
           />
@@ -77,18 +80,18 @@ export function DashboardPage() {
               </div>
 
               <div className="metric-card">
-                <span>Database</span>
-                <strong>{databaseOk ? "OK" : "FAIL"}</strong>
+                <span>База данных</span>
+                <strong>{databaseOk ? "Доступна" : "Сбой"}</strong>
               </div>
 
               <div className="metric-card">
-                <span>Redis</span>
-                <strong>{redisOk ? "OK" : "FAIL"}</strong>
+                <span>Очередь задач</span>
+                <strong>{redisOk ? "Доступна" : "Сбой"}</strong>
               </div>
 
               <div className="metric-card">
-                <span>Status</span>
-                <strong>{health?.status || "…"}</strong>
+                <span>Сервисы</span>
+                <strong>{getReadinessLabel(health?.status)}</strong>
               </div>
             </div>
           </div>
@@ -96,9 +99,9 @@ export function DashboardPage() {
 
         <Card>
           <CardHeader
-            eyebrow="Сервисы"
-            title="Готовность backend"
-            description="Frontend проверяет readiness endpoint: база данных и Redis/Celery broker."
+            eyebrow="Состояние"
+            title="Готовность сервисов"
+            description="Перед запуском тяжелого анализа стоит убедиться, что база данных и очередь задач доступны."
           />
 
           <div className="card-body">
@@ -106,30 +109,33 @@ export function DashboardPage() {
               <div className="service-row">
                 <div>
                   <Activity size={18} />
-                  <strong>Database</strong>
+                  <strong>База данных</strong>
                 </div>
+
                 <Badge tone={databaseOk ? "success" : "danger"}>
-                  {databaseOk ? "online" : "offline"}
+                  {databaseOk ? "доступна" : "недоступна"}
                 </Badge>
               </div>
 
               <div className="service-row">
                 <div>
                   <Gauge size={18} />
-                  <strong>Redis / Celery broker</strong>
+                  <strong>Очередь задач</strong>
                 </div>
+
                 <Badge tone={redisOk ? "success" : "danger"}>
-                  {redisOk ? "online" : "offline"}
+                  {redisOk ? "доступна" : "недоступна"}
                 </Badge>
               </div>
 
               <div className="service-row">
                 <div>
                   <ShieldAlert size={18} />
-                  <strong>Overall</strong>
+                  <strong>Общий статус</strong>
                 </div>
-                <Badge tone={health?.status === "ok" ? "success" : "warning"}>
-                  {health?.status || "unknown"}
+
+                <Badge tone={servicesReady ? "success" : "warning"}>
+                  {servicesReady ? "готово" : "ограниченная готовность"}
                 </Badge>
               </div>
             </div>
@@ -142,9 +148,14 @@ export function DashboardPage() {
           <div className="feature-card-icon">
             <FolderKanban size={22} />
           </div>
+
           <span>Раздел</span>
           <strong>Проекты</strong>
-          <p>Загрузка `.sol` или `.zip`, просмотр metadata, запуск анализаторов.</p>
+          <p>
+            Загрузка `.sol` и `.zip`, просмотр структуры проекта, запуск
+            отдельных анализаторов или полного пайплайна.
+          </p>
+
           <ArrowRight size={18} />
         </Link>
 
@@ -152,9 +163,14 @@ export function DashboardPage() {
           <div className="feature-card-icon">
             <FileCode2 size={22} />
           </div>
-          <span>Быстрая проверка</span>
-          <strong>Quick Scan</strong>
-          <p>Мгновенная регулярная проверка одного Solidity-файла без создания проекта.</p>
+
+          <span>Проверка файла</span>
+          <strong>Быстрый сканер</strong>
+          <p>
+            Мгновенная эвристическая проверка одного Solidity-файла без
+            сохранения проекта в списке.
+          </p>
+
           <ArrowRight size={18} />
         </Link>
 
@@ -162,25 +178,33 @@ export function DashboardPage() {
           <div className="feature-card-icon">
             <Activity size={22} />
           </div>
-          <span>Диагностика</span>
-          <strong>Health</strong>
-          <p>Проверка backend, database и Redis перед запуском тяжелого анализа.</p>
+
+          <span>Инфраструктура</span>
+          <strong>Сервисы</strong>
+          <p>
+            Проверка доступности API, базы данных и очереди задач перед запуском
+            анализа.
+          </p>
+
           <ArrowRight size={18} />
         </Link>
       </section>
 
       <Card>
         <CardHeader
-          eyebrow="Недавние проекты"
-          title="Последние загруженные контракты"
-          description="Список берется из `/api/projects`, сортировка выполняется на сервере по времени создания."
+          eyebrow="Последние загрузки"
+          title="Недавние проекты"
+          description="Быстрый доступ к последним загруженным контрактам и архивам."
         />
 
         <div className="card-body">
           {!latestProjects.length ? (
             <div className="empty-state">
               <strong>Проекты пока не загружены</strong>
-              <p>Перейдите в раздел проектов и загрузите `.sol` файл или `.zip` архив.</p>
+              <p>
+                Перейдите в раздел проектов и загрузите одиночный `.sol` файл
+                или `.zip` архив.
+              </p>
             </div>
           ) : (
             <div className="project-list">
@@ -193,7 +217,8 @@ export function DashboardPage() {
                   <div>
                     <strong>{project.name}</strong>
                     <span>
-                      {project.project_type} · {project.solidity_files_count} Solidity file(s) ·{" "}
+                      {getProjectTypeLabel(project.project_type)} ·{" "}
+                      {project.solidity_files_count} Solidity-файл(ов) ·{" "}
                       {formatDateTime(project.created_at)}
                     </span>
                   </div>
@@ -207,4 +232,31 @@ export function DashboardPage() {
       </Card>
     </div>
   );
+}
+
+function getReadinessLabel(status: string | null | undefined): string {
+  if (status === "ok") {
+    return "Готово";
+  }
+
+  if (status === "degraded") {
+    return "Ограничено";
+  }
+
+  return "Неизвестно";
+}
+
+function getProjectTypeLabel(projectType: string): string {
+  switch (projectType) {
+    case "single_file":
+      return "Одиночный файл";
+    case "multi_file":
+      return "Несколько файлов";
+    case "foundry":
+      return "Foundry-проект";
+    case "hardhat":
+      return "Hardhat-проект";
+    default:
+      return projectType || "Тип не определен";
+  }
 }

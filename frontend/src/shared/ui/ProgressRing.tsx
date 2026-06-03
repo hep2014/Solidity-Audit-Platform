@@ -1,11 +1,14 @@
 import clsx from "clsx";
 
+type ProgressRingTone = "neutral" | "info" | "success" | "warning" | "danger";
+
 interface ProgressRingProps {
   value: number;
   size?: number;
   stroke?: number;
   label?: string;
   active?: boolean;
+  tone?: ProgressRingTone;
 }
 
 export function ProgressRing({
@@ -13,7 +16,8 @@ export function ProgressRing({
   size = 96,
   stroke = 8,
   label,
-  active = false
+  active = false,
+  tone = "neutral"
 }: ProgressRingProps) {
   const normalized = Math.max(0, Math.min(100, value || 0));
   const radius = (size - stroke) / 2;
@@ -21,7 +25,15 @@ export function ProgressRing({
   const dashOffset = circumference - (normalized / 100) * circumference;
 
   return (
-    <div className={clsx("progress-ring", { "progress-ring-active": active })}>
+    <div
+      className={clsx(
+        "progress-ring",
+        `progress-ring-${tone}`,
+        {
+          "progress-ring-active": active
+        }
+      )}
+    >
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         <circle
           className="progress-ring-track"
@@ -30,6 +42,7 @@ export function ProgressRing({
           r={radius}
           strokeWidth={stroke}
         />
+
         <circle
           className="progress-ring-value"
           cx={size / 2}

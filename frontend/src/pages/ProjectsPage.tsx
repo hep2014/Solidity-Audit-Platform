@@ -1,109 +1,63 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import {
-  ArrowRight,
-  FileArchive,
-  FileCode2,
-  Loader2,
-  RefreshCw,
-  Trash2,
-  UploadCloud
-} from "lucide-react";
+import { useState } from "react";
+import { FileSearch, Loader2, RotateCcw } from "lucide-react";
 
 import { Card, CardHeader } from "../shared/ui/Card";
 import { Button } from "../shared/ui/Button";
-import { Badge } from "../shared/ui/Badge";
+import { Badge, severityTone } from "../shared/ui/Badge";
 import { FileDropzone } from "../shared/ui/FileDropzone";
+import { quickScanSolidity } from "../shared/api/scan";
 import { ApiError } from "../shared/api/http";
-import {
-  deleteProject,
-  listProjects,
-  uploadProject
-} from "../shared/api/projects";
-import type { ProjectRead } from "../shared/types/api";
-import { formatDateTime, stringifyJson } from "../shared/utils/format";
+import type { ScanIssue, ScanResponse } from "../shared/types/api";
+import { getSeverityRuLabel, normalizeSeverity } from "../domain/severity";
 
-export function ProjectsPage() {
-  const [projects, setProjects] = useState<ProjectRead[]>([]);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [loadingProjects, setLoadingProjects] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+export function QuickScanPage() {
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<ScanResponse | null>(null);
+  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadProjects() {
-    setLoadingProjects(true);
-    setError(null);
-
-    try {
-      const response = await listProjects();
-      setProjects(response);
-    } catch (exception) {
-      setError(getErrorMessage(exception));
-    } finally {
-      setLoadingProjects(false);
-    }
-  }
-
-  async function handleUpload() {
-    if (!selectedFile) {
+  async function handleScan() {
+    if (!file) {
       return;
     }
 
-    setUploading(true);
+    setScanning(true);
     setError(null);
+    setResult(null);
 
     try {
-      const project = await uploadProject(selectedFile);
-      setSelectedFile(null);
-      setProjects((current) => [project, ...current]);
+      const response = await quickScanSolidity(file);
+      setResult(response);
     } catch (exception) {
       setError(getErrorMessage(exception));
     } finally {
-      setUploading(false);
+      setScanning(false);
     }
   }
 
-  async function handleDelete(projectId: string) {
-    const confirmed = window.confirm(
-      "Удалить проект? Вместе с ним будут удалены связанные анализы."
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setDeletingProjectId(projectId);
+  function reset() {
+    setFile(null);
+    setResult(null);
     setError(null);
-
-    try {
-      await deleteProject(projectId);
-      setProjects((current) => current.filter((project) => project.id !== projectId));
-    } catch (exception) {
-      setError(getErrorMessage(exception));
-    } finally {
-      setDeletingProjectId(null);
-    }
   }
-
-  useEffect(() => {
-    loadProjects();
-  }, []);
 
   return (
     <div className="page-grid page-grid-two">
       <Card>
         <CardHeader
-          eyebrow="Project intake"
-          title="Загрузка проекта"
-          description="Backend принимает одиночный `.sol` файл или `.zip` архив. Для архива определяется тип проекта, entrypoint, список Solidity-файлов и версии компилятора."
+          eyebrow="Быстрая проверка"
+          title="Проверить один Solidity-файл"
+          description="Режим для мгновенной эвристической проверки одного `.sol` файла без добавления проекта в общий список."
         />
 
         <div className="card-body page-grid">
           <FileDropzone
-            value={selectedFile}
-            disabled={uploading}
-            onChange={setSelectedFile}
+            value={file}
+            accept=".sol"
+            title="Выберите `.sol` файл"
+            description="Быстрая проверка принимает только одиночный Solidity-файл."
+            disabled={scanning}
+            onChange={setFile}
           />
 
           {error && (
@@ -115,20 +69,26 @@ export function ProjectsPage() {
 
           <div className="actions-row">
             <Button
-              onClick={handleUpload}
-              disabled={!selectedFile || uploading}
-              icon={uploading ? <Loader2 className="spin" size={17} /> : <UploadCloud size={17} />}
+              disabled={!file || scanning}
+              onClick={handleScan}
+              icon={
+                scanning ? (
+                  <Loader2 className="spin" size={17} />
+                ) : (
+                  <FileSearch size={17} />
+                )
+              }
             >
-              {uploading ? "Загрузка..." : "Загрузить проект"}
+              {scanning ? "Проверка..." : "Запустить проверку"}
             </Button>
 
             <Button
               variant="secondary"
-              onClick={loadProjects}
-              disabled={loadingProjects}
-              icon={loadingProjects ? <Loader2 className="spin" size={17} /> : <RefreshCw size={17} />}
+              onClick={reset}
+              disabled={scanning}
+              icon={<RotateCcw size={17} />}
             >
-              Обновить список
+              Сбросить
             </Button>
           </div>
         </div>
@@ -136,122 +96,118 @@ export function ProjectsPage() {
 
       <Card>
         <CardHeader
-          eyebrow="Правила приема"
-          title="Что поддерживается"
-          description="На сервере уже есть защита от небезопасных имен, пустых файлов, больших архивов, zip traversal и symlink внутри архива."
+          eyebrow="Результат"
+          title="Итоги быстрой проверки"
+          description="Сканер проверяет базовые признаки риска: отсутствие pragma/SPDX, использование tx.origin, selfdestruct, delegatecall, низкоуровневых вызовов и block.timestamp."
         />
 
         <div className="card-body">
-          <div className="info-stack">
-            <div className="info-line">
-              <FileCode2 size={18} />
-              <div>
-                <strong>Single Solidity file</strong>
-                <span>Один `.sol` файл анализируется как `single_file` проект.</span>
-              </div>
-            </div>
-
-            <div className="info-line">
-              <FileArchive size={18} />
-              <div>
-                <strong>ZIP project</strong>
-                <span>Поддерживаются Foundry, Hardhat, multi-file и single-file проекты.</span>
-              </div>
-            </div>
-
-            <div className="info-line">
-              <UploadCloud size={18} />
-              <div>
-                <strong>Entrypoint auto-detection</strong>
-                <span>Приоритет: `foundry.toml`, затем файлы из `src`, затем первый `.sol`.</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      <Card className="wide-card">
-        <CardHeader
-          eyebrow="Projects"
-          title="Загруженные проекты"
-          description="Из этого списка можно перейти к карточке проекта и запустить конкретный анализатор или полный pipeline."
-        />
-
-        <div className="card-body">
-          {loadingProjects ? (
-            <div className="loading-state">
-              <Loader2 className="spin" size={22} />
-              <span>Загрузка проектов...</span>
-            </div>
-          ) : !projects.length ? (
+          {!result ? (
             <div className="empty-state">
-              <strong>Список проектов пуст</strong>
-              <p>Загрузите `.sol` файл или `.zip` архив через форму выше.</p>
+              <strong>Результатов пока нет</strong>
+              <p>Выберите `.sol` файл и запустите проверку.</p>
             </div>
           ) : (
-            <div className="project-card-grid">
-              {projects.map((project) => (
-                <article key={project.id} className="project-card">
-                  <header>
-                    <div className="project-icon">
-                      {project.project_type === "single_file" ? (
-                        <FileCode2 size={22} />
-                      ) : (
-                        <FileArchive size={22} />
-                      )}
-                    </div>
+            <div className="quick-scan-result">
+              <div className="metric-grid">
+                <div className="metric-card">
+                  <span>Файл</span>
+                  <strong>{result.filename}</strong>
+                </div>
 
-                    <Badge>{project.project_type}</Badge>
-                  </header>
+                <div className="metric-card">
+                  <span>Найдено записей</span>
+                  <strong>{result.total}</strong>
+                </div>
+              </div>
 
-                  <h3>{project.name}</h3>
-
-                  <div className="project-meta">
-                    <span>Solidity files: {project.solidity_files_count}</span>
-                    <span>Created: {formatDateTime(project.created_at)}</span>
-                    <span>
-                      solc:{" "}
-                      {project.detected_solc_versions?.length
-                        ? project.detected_solc_versions.join(", ")
-                        : "not detected"}
-                    </span>
-                  </div>
-
-                  <details className="metadata-details">
-                    <summary>Metadata</summary>
-                    <pre>{stringifyJson(project.project_metadata)}</pre>
-                  </details>
-
-                  <footer>
-                    <Link to={`/projects/${project.id}`}>
-                      <Button variant="secondary" icon={<ArrowRight size={16} />}>
-                        Открыть
-                      </Button>
-                    </Link>
-
-                    <Button
-                      variant="danger"
-                      disabled={deletingProjectId === project.id}
-                      onClick={() => handleDelete(project.id)}
-                      icon={
-                        deletingProjectId === project.id ? (
-                          <Loader2 className="spin" size={16} />
-                        ) : (
-                          <Trash2 size={16} />
-                        )
-                      }
+              {!result.issues.length ? (
+                <div className="empty-state">
+                  <strong>Проблем не найдено</strong>
+                  <p>
+                    Базовый сканер не обнаружил известных эвристических
+                    паттернов риска.
+                  </p>
+                </div>
+              ) : (
+                <div className="quick-issue-list">
+                  {result.issues.map((issue, index) => (
+                    <article
+                      key={`${issue.rule}-${index}`}
+                      className="quick-issue-card"
                     >
-                      Удалить
-                    </Button>
-                  </footer>
-                </article>
-              ))}
+                      <header>
+                        <Badge tone={severityTone(issue.severity)}>
+                          {getSeverityRuLabel(normalizeSeverity(issue.severity))}
+                        </Badge>
+
+                        <code>{issue.rule}</code>
+                      </header>
+
+                      <h3>{getIssueTitle(issue)}</h3>
+                      <p>{getIssueDescription(issue)}</p>
+
+                      <span>
+                        Строка: {issue.line ?? "—"}
+                      </span>
+                    </article>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
       </Card>
     </div>
   );
+}
+
+function getIssueTitle(issue: ScanIssue): string {
+  switch (issue.rule) {
+    case "EMPTY_FILE":
+      return "Пустой файл";
+    case "NO_SPDX":
+      return "Отсутствует SPDX-лицензия";
+    case "NO_PRAGMA":
+      return "Отсутствует pragma solidity";
+    case "NO_CONTRACT":
+      return "Не найдено объявление контракта";
+    case "TX_ORIGIN":
+      return "Риск авторизации через tx.origin";
+    case "SELFDESTRUCT":
+      return "Опасная операция selfdestruct";
+    case "DELEGATECALL":
+      return "Опасный delegatecall";
+    case "LOW_LEVEL_CALL":
+      return "Низкоуровневый внешний вызов";
+    case "BLOCK_TIMESTAMP":
+      return "Зависимость от block.timestamp";
+    default:
+      return "Найдено предупреждение";
+  }
+}
+
+function getIssueDescription(issue: ScanIssue): string {
+  switch (issue.rule) {
+    case "NO_SPDX":
+      return "В файле не указан идентификатор лицензии. Рекомендуется добавить строку вида `// SPDX-License-Identifier: MIT` или другой корректный SPDX identifier.";
+    case "NO_PRAGMA":
+      return "В файле не задана версия компилятора Solidity. Рекомендуется явно указать совместимый диапазон версии.";
+    case "NO_CONTRACT":
+      return "Сканер не обнаружил объявление контракта. Проверьте, что загружен корректный Solidity-файл.";
+    case "TX_ORIGIN":
+      return "Использование tx.origin в авторизации может привести к phishing-сценариям через промежуточный контракт.";
+    case "SELFDESTRUCT":
+      return "selfdestruct может уничтожить контракт или привести к опасному изменению жизненного цикла системы.";
+    case "DELEGATECALL":
+      return "delegatecall выполняет внешний код в контексте storage текущего контракта и требует строгого контроля target-адреса.";
+    case "LOW_LEVEL_CALL":
+      return "Низкоуровневый вызов требует проверки результата, порядка обновления состояния и риска реентерабельности.";
+    case "BLOCK_TIMESTAMP":
+      return "block.timestamp не следует использовать как надежный источник случайности или критическое условие бизнес-логики.";
+    default:
+      return issue.message;
+  }
 }
 
 function getErrorMessage(exception: unknown): string {
@@ -263,5 +219,5 @@ function getErrorMessage(exception: unknown): string {
     return exception.message;
   }
 
-  return "Unknown error";
+  return "Неизвестная ошибка";
 }

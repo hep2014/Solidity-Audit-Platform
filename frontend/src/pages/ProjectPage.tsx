@@ -107,6 +107,8 @@ export function ProjectPage() {
       return;
     }
 
+    setError(null);
+
     try {
       await deleteProject(projectId);
       navigate("/projects");
@@ -123,6 +125,7 @@ export function ProjectPage() {
     }
 
     setDeletingAnalysisId(analysisId);
+    setError(null);
 
     try {
       await deleteAnalysis(analysisId);
@@ -157,7 +160,8 @@ export function ProjectPage() {
         <div className="card-body">
           <div className="empty-state">
             <strong>Проект не найден</strong>
-            <p>{error || "Backend не вернул данные проекта."}</p>
+            <p>{error || "Сервер не вернул данные проекта."}</p>
+
             <Link to="/projects">
               <Button variant="secondary" icon={<ArrowLeft size={16} />}>
                 Назад к проектам
@@ -173,14 +177,14 @@ export function ProjectPage() {
     <div className="page-grid">
       <Card>
         <CardHeader
-          eyebrow="Project"
+          eyebrow="Проект"
           title={project.name}
-          description="Карточка проекта: metadata, история запусков, отдельные анализаторы и полный pipeline."
+          description="Карточка загруженного Solidity-проекта: тип проекта, точка входа, найденные версии компилятора и история запусков анализа."
           action={
             <div className="actions-row">
               <Link to="/projects">
                 <Button variant="secondary" icon={<ArrowLeft size={16} />}>
-                  Проекты
+                  К списку проектов
                 </Button>
               </Link>
 
@@ -209,30 +213,34 @@ export function ProjectPage() {
                 <FileCode2 size={28} />
               </div>
 
-              <div>
+              <div className="project-overview-content">
                 <div className="project-badges">
-                  <Badge>{project.project_type}</Badge>
-                  <Badge>{project.solidity_files_count} solidity file(s)</Badge>
+                  <Badge>{getProjectTypeLabel(project.project_type)}</Badge>
+                  <Badge>{project.solidity_files_count} Solidity-файл(ов)</Badge>
+
                   {project.detected_solc_versions?.map((version) => (
                     <Badge key={version}>solc {version}</Badge>
                   ))}
                 </div>
 
-                <dl className="details-grid">
+                <dl className="details-grid details-grid-safe">
                   <div>
-                    <dt>ID</dt>
+                    <dt>ID проекта</dt>
                     <dd>{project.id}</dd>
                   </div>
+
                   <div>
-                    <dt>Created</dt>
+                    <dt>Дата загрузки</dt>
                     <dd>{formatDateTime(project.created_at)}</dd>
                   </div>
+
                   <div>
-                    <dt>Entrypoint</dt>
+                    <dt>Точка входа</dt>
                     <dd>{project.entrypoint_path || project.file_path}</dd>
                   </div>
+
                   <div>
-                    <dt>Root</dt>
+                    <dt>Корневая директория</dt>
                     <dd>{project.root_path || "—"}</dd>
                   </div>
                 </dl>
@@ -240,7 +248,7 @@ export function ProjectPage() {
             </div>
 
             <details className="metadata-details">
-              <summary>Project metadata</summary>
+              <summary>Метаданные проекта</summary>
               <pre>{stringifyJson(project.project_metadata)}</pre>
             </details>
           </div>
@@ -250,9 +258,9 @@ export function ProjectPage() {
       <section className="page-grid page-grid-two">
         <Card>
           <CardHeader
-            eyebrow="Run"
-            title="Запуск анализа"
-            description="Можно запускать отдельные инструменты или полный pipeline. При конфликте активного анализа backend вернет 409; для параллельного запуска включите force."
+            eyebrow="Запуск"
+            title="Выбор режима анализа"
+            description="Можно запустить отдельный анализатор или полный pipeline. Если для проекта уже идет активный анализ, сервер вернет конфликт; для принудительного запуска включите соответствующую опцию."
           />
 
           <div className="card-body">
@@ -262,7 +270,10 @@ export function ProjectPage() {
                 checked={force}
                 onChange={(event) => setForce(event.target.checked)}
               />
-              <span>force=true: разрешить запуск при наличии активного анализа</span>
+
+              <span>
+                Принудительный запуск: разрешить новый анализ даже при наличии активного запуска
+              </span>
             </label>
 
             <div className="analysis-mode-grid">
@@ -285,8 +296,8 @@ export function ProjectPage() {
                     )}
                   </div>
 
-                  <strong>{item.title}</strong>
-                  <p>{item.description}</p>
+                  <strong>{getAnalysisModeTitle(item.mode)}</strong>
+                  <p>{getAnalysisModeDescription(item.mode)}</p>
                 </button>
               ))}
             </div>
@@ -295,9 +306,9 @@ export function ProjectPage() {
 
         <Card>
           <CardHeader
-            eyebrow="Latest analysis"
-            title="Последний запуск"
-            description="Краткая сводка по самому свежему анализу проекта."
+            eyebrow="Последний запуск"
+            title="Состояние последнего анализа"
+            description="Краткая сводка по самому свежему запуску для этого проекта."
             action={
               <Button
                 variant="secondary"
@@ -320,31 +331,35 @@ export function ProjectPage() {
                 <ProgressRing
                   value={latestAnalysis.progress}
                   active={isActiveStatus(latestAnalysis.status)}
-                  label="progress"
+                  tone={getProgressTone(latestAnalysis.status)}
+                  label="готово"
                 />
 
-                <div>
+                <div className="latest-analysis-content">
                   <Badge tone={statusTone(latestAnalysis.status)}>
                     {getStatusLabel(latestAnalysis.status)}
                   </Badge>
 
                   <h3>{getStepLabel(latestAnalysis.current_step)}</h3>
 
-                  <dl className="details-grid compact">
+                  <dl className="details-grid compact details-grid-safe">
                     <div>
-                      <dt>Analysis ID</dt>
+                      <dt>ID анализа</dt>
                       <dd>{latestAnalysis.id}</dd>
                     </div>
+
                     <div>
-                      <dt>Created</dt>
+                      <dt>Создан</dt>
                       <dd>{formatDateTime(latestAnalysis.created_at)}</dd>
                     </div>
+
                     <div>
-                      <dt>Started</dt>
+                      <dt>Запущен</dt>
                       <dd>{formatDateTime(latestAnalysis.started_at)}</dd>
                     </div>
+
                     <div>
-                      <dt>Finished</dt>
+                      <dt>Завершен</dt>
                       <dd>{formatDateTime(latestAnalysis.finished_at)}</dd>
                     </div>
                   </dl>
@@ -363,31 +378,32 @@ export function ProjectPage() {
 
       <Card>
         <CardHeader
-          eyebrow="History"
+          eyebrow="История"
           title="История анализов"
-          description="Список всех запусков для данного проекта: статус, текущий шаг, прогресс и переход к подробному отчету."
+          description="Все запуски для данного проекта: статус, этап выполнения, прогресс и переход к подробному отчету."
         />
 
         <div className="card-body">
           {!analyses.length ? (
             <div className="empty-state">
               <strong>История пуста</strong>
-              <p>После запуска анализатора здесь появится запись.</p>
+              <p>После запуска анализатора здесь появится первая запись.</p>
             </div>
           ) : (
             <div className="analysis-list">
               {analyses.map((analysis) => (
                 <article key={analysis.id} className="analysis-row">
-                  <div>
+                  <div className="analysis-row-main">
                     <div className="analysis-row-title">
                       <Badge tone={statusTone(analysis.status)}>
                         {getStatusLabel(analysis.status)}
                       </Badge>
+
                       <strong>{getStepLabel(analysis.current_step)}</strong>
                     </div>
 
                     <span>
-                      {analysis.progress}% · created {formatDateTime(analysis.created_at)}
+                      {analysis.progress}% · создан {formatDateTime(analysis.created_at)}
                     </span>
                   </div>
 
@@ -423,15 +439,106 @@ export function ProjectPage() {
       {activeAnalysis && (
         <div className="floating-run-banner">
           <ShieldCheck size={18} />
+
           <span>
             Сейчас выполняется анализ: {getStepLabel(activeAnalysis.current_step)} ·{" "}
             {activeAnalysis.progress}%
           </span>
+
           <Link to={`/analyses/${activeAnalysis.id}`}>Открыть</Link>
         </div>
       )}
     </div>
   );
+}
+
+function getProjectTypeLabel(projectType: string): string {
+  switch (projectType) {
+    case "single_file":
+      return "Одиночный файл";
+    case "multi_file":
+      return "Несколько файлов";
+    case "foundry":
+      return "Foundry-проект";
+    case "hardhat":
+      return "Hardhat-проект";
+    default:
+      return projectType || "Тип не определен";
+  }
+}
+
+function getAnalysisModeTitle(mode: AnalysisMode): string {
+  switch (mode) {
+    case "basic":
+      return "Базовый сканер";
+    case "slither":
+      return "Slither";
+    case "foundry":
+      return "Foundry";
+    case "mythril":
+      return "Mythril";
+    case "echidna":
+      return "Echidna";
+    case "cfg":
+      return "Граф потока управления";
+    case "dfg":
+      return "Граф потока данных";
+    case "reentrancy-correlation":
+      return "Корреляция реентерабельности";
+    case "manual-checklist":
+      return "Чек-лист ручного аудита";
+    case "full":
+      return "Полный анализ";
+    default:
+      return "Анализ";
+  }
+}
+
+function getAnalysisModeDescription(mode: AnalysisMode): string {
+  switch (mode) {
+    case "basic":
+      return "Быстрая эвристическая проверка: pragma, SPDX, tx.origin, selfdestruct, delegatecall и внешние вызовы.";
+    case "slither":
+      return "Статический анализ Solidity-кода через Slither detectors.";
+    case "foundry":
+      return "Сборка проекта и запуск тестов Foundry.";
+    case "mythril":
+      return "Символьное исполнение и поиск сложных потенциальных дефектов.";
+    case "echidna":
+      return "Property-based fuzzing при наличии конфигурации Echidna.";
+    case "cfg":
+      return "Извлечение управляющих конструкций функций.";
+    case "dfg":
+      return "Анализ чтения и записи переменных состояния.";
+    case "reentrancy-correlation":
+      return "Проверка паттерна внешнего вызова перед обновлением состояния.";
+    case "manual-checklist":
+      return "Список пунктов, которые нужно проверить вручную.";
+    case "full":
+      return "Последовательный запуск всех поддерживаемых анализаторов.";
+    default:
+      return "Запуск выбранного режима анализа.";
+  }
+}
+
+function getProgressTone(status: string | null | undefined) {
+  if (status === "SUCCESS") {
+    return "success";
+  }
+
+  if (status === "PARTIAL_SUCCESS") {
+    return "warning";
+  }
+
+  if (status === "FAILED" || status === "TIMEOUT" || status === "CANCELLED") {
+    return "danger";
+  }
+
+  if (status === "RUNNING" || status === "PENDING") {
+    return "info";
+  }
+
+  return "neutral";
 }
 
 function getErrorMessage(exception: unknown): string {
@@ -443,5 +550,5 @@ function getErrorMessage(exception: unknown): string {
     return exception.message;
   }
 
-  return "Unknown error";
+  return "Неизвестная ошибка";
 }

@@ -47,6 +47,7 @@ export function HealthPage() {
     loadHealth();
   }, []);
 
+  const apiAvailable = live?.status === "ok";
   const databaseOk = ready?.checks.database ?? false;
   const redisOk = ready?.checks.redis ?? false;
   const overallOk = ready?.status === "ok";
@@ -55,15 +56,21 @@ export function HealthPage() {
     <div className="page-grid">
       <Card>
         <CardHeader
-          eyebrow="Health"
-          title="Проверка сервисов"
-          description="Эта страница показывает состояние live/ready endpoints, базы данных и Redis/Celery broker."
+          eyebrow="Сервисы"
+          title="Состояние инфраструктуры"
+          description="Проверка доступности API, базы данных и очереди задач. При сбое одного из сервисов анализ может не запускаться или завершаться неполно."
           action={
             <Button
               variant="secondary"
               onClick={loadHealth}
               disabled={loading}
-              icon={loading ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
+              icon={
+                loading ? (
+                  <Loader2 className="spin" size={16} />
+                ) : (
+                  <RefreshCw size={16} />
+                )
+              }
             >
               Обновить
             </Button>
@@ -84,11 +91,11 @@ export function HealthPage() {
                 <Server size={22} />
               </div>
 
-              <span>Live endpoint</span>
-              <strong>{live?.status || "unknown"}</strong>
+              <span>API</span>
+              <strong>{apiAvailable ? "Доступен" : "Недоступен"}</strong>
 
-              <Badge tone={live?.status === "ok" ? "success" : "danger"}>
-                {live?.status === "ok" ? "online" : "offline"}
+              <Badge tone={apiAvailable ? "success" : "danger"}>
+                {apiAvailable ? "работает" : "сбой"}
               </Badge>
             </article>
 
@@ -97,11 +104,11 @@ export function HealthPage() {
                 <Activity size={22} />
               </div>
 
-              <span>Ready endpoint</span>
-              <strong>{ready?.status || "unknown"}</strong>
+              <span>Готовность</span>
+              <strong>{overallOk ? "Готово" : "Ограничено"}</strong>
 
               <Badge tone={overallOk ? "success" : "warning"}>
-                {overallOk ? "ready" : "degraded"}
+                {overallOk ? "все проверки пройдены" : "есть ограничения"}
               </Badge>
             </article>
 
@@ -110,11 +117,11 @@ export function HealthPage() {
                 <Database size={22} />
               </div>
 
-              <span>Database</span>
-              <strong>{databaseOk ? "OK" : "FAIL"}</strong>
+              <span>База данных</span>
+              <strong>{databaseOk ? "Доступна" : "Сбой"}</strong>
 
               <Badge tone={databaseOk ? "success" : "danger"}>
-                {databaseOk ? "connected" : "failed"}
+                {databaseOk ? "подключена" : "нет подключения"}
               </Badge>
             </article>
 
@@ -123,11 +130,11 @@ export function HealthPage() {
                 <RadioTower size={22} />
               </div>
 
-              <span>Redis / Celery</span>
-              <strong>{redisOk ? "OK" : "FAIL"}</strong>
+              <span>Очередь задач</span>
+              <strong>{redisOk ? "Доступна" : "Сбой"}</strong>
 
               <Badge tone={redisOk ? "success" : "danger"}>
-                {redisOk ? "connected" : "failed"}
+                {redisOk ? "подключена" : "нет подключения"}
               </Badge>
             </article>
           </div>
@@ -136,20 +143,20 @@ export function HealthPage() {
 
       <Card>
         <CardHeader
-          eyebrow="Raw response"
-          title="Ответ backend"
-          description="Сырые ответы endpoint-ов удобно использовать для диагностики проблем с readiness."
+          eyebrow="Диагностика"
+          title="Ответы сервисных проверок"
+          description="Сырые ответы можно использовать для диагностики при ошибках запуска анализа или проблемах с очередью задач."
         />
 
         <div className="card-body">
           <div className="raw-grid">
             <div className="raw-block">
-              <strong>GET /health/live</strong>
+              <strong>Проверка доступности API</strong>
               <pre>{JSON.stringify(live, null, 2)}</pre>
             </div>
 
             <div className="raw-block">
-              <strong>GET /health/ready</strong>
+              <strong>Проверка готовности сервисов</strong>
               <pre>{JSON.stringify(ready, null, 2)}</pre>
             </div>
           </div>
@@ -168,5 +175,5 @@ function getErrorMessage(exception: unknown): string {
     return exception.message;
   }
 
-  return "Unknown error";
+  return "Неизвестная ошибка";
 }

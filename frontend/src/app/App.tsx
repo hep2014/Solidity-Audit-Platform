@@ -15,22 +15,24 @@ export function App() {
 
         <div className="hero-grid">
           <div>
-            <h1>Анализ Solidity-контрактов</h1>
+            <h1>Платформа аудита смарт-контрактов</h1>
             <p>
-              Учебная платформа для загрузки смарт-контрактов, запуска статического
-              анализа, fuzzing, символьного исполнения, CFG/DFG-проверок и просмотра
-              подробных логов выполнения.
+              Загрузка Solidity-проектов, запуск статического анализа, фаззинга,
+              символьного исполнения и дополнительных проверок потоков управления
+              и данных. Результаты разделяются на уязвимости, ошибки анализаторов,
+              ручные проверки и технические логи.
             </p>
           </div>
 
           <div className="hero-status">
             <div className="hero-status-card">
-              <span>Pipeline</span>
+              <span>Пайплайн анализа</span>
               <strong>Slither · Mythril · Foundry · Echidna</strong>
             </div>
+
             <div className="hero-status-card">
-              <span>Custom checks</span>
-              <strong>CFG · DFG · Reentrancy</strong>
+              <span>Дополнительные проверки</span>
+              <strong>CFG · DFG · корреляция реентерабельности</strong>
             </div>
           </div>
         </div>
@@ -38,20 +40,24 @@ export function App() {
         <nav className="nav-tabs">
           <NavLink to="/" end>
             <Gauge size={16} />
-            Главная
+            Обзор
           </NavLink>
+
           <NavLink to="/projects">
             <FolderKanban size={16} />
             Проекты
           </NavLink>
+
           <NavLink to="/quick-scan">
             <FileSearch size={16} />
-            Quick Scan
+            Быстрая проверка
           </NavLink>
+
           <NavLink to="/health">
             <Activity size={16} />
-            Health
+            Сервисы
           </NavLink>
+
           <a href="https://soliditylang.org/" target="_blank" rel="noreferrer">
             <ShieldCheck size={16} />
             Solidity
