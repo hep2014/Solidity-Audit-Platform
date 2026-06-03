@@ -29,7 +29,13 @@ export function classifyFinding(finding: FindingRead): ClassifiedFinding {
   const rule = normalizeRule(finding.rule);
 
   const classification = classifyByAnalyzer(finding, analyzer, severity, rule);
-  const sortWeight = buildSortWeight(classification.displayKind, classification.category, analyzer, severity, finding.line);
+  const sortWeight = buildSortWeight(
+    classification.displayKind,
+    classification.category,
+    analyzer,
+    severity,
+    finding.line
+  );
 
   return {
     ...finding,
@@ -81,9 +87,9 @@ function classifyByAnalyzer(
     case "echidna":
       return classifyEchidna(finding, severity, rule);
     case "cfg":
-      return classifyCfg(rule);
+      return classifyCfg(finding, rule);
     case "dfg":
-      return classifyDfg(rule);
+      return classifyDfg(finding, rule);
     case "custom-cfg-dfg":
       return classifyReentrancyCorrelation(finding, rule);
     case "manual-audit":
@@ -173,8 +179,8 @@ function classifyBasicScanner(rule: string): PartialClassification {
     category: "unknown",
     displayKind: "vulnerability",
     title: "Неизвестное правило базового сканера",
-    shortDescription: "Базовый сканер вернул правило, которого нет в frontend-справочнике.",
-    recommendation: "Проверить raw message и при необходимости добавить правило в классификатор.",
+    shortDescription: "Базовый сканер вернул правило, которого нет в справочнике интерфейса.",
+    recommendation: "Проверить исходное сообщение и при необходимости добавить правило в классификатор.",
     isActionable: true
   };
 }
@@ -195,35 +201,85 @@ function classifySlither(
     };
   }
 
-  if (rule === "SLITHER_EXECUTION_ERROR" || rule === "SLITHER_FILE_NOT_FOUND" || rule.includes("TIMEOUT")) {
-    return toolError("Ошибка запуска Slither", "Slither не смог корректно завершить анализ.", "Проверить входной проект, зависимости, версию solc и stderr анализатора.");
+  if (
+    rule === "SLITHER_EXECUTION_ERROR" ||
+    rule === "SLITHER_FILE_NOT_FOUND" ||
+    rule.includes("TIMEOUT")
+  ) {
+    return toolError(
+      "Ошибка запуска Slither",
+      "Slither не смог корректно завершить анализ.",
+      "Проверить входной проект, зависимости, версию solc и stderr анализатора."
+    );
   }
 
   if (rule.includes("REENTRANCY")) {
-    return vulnerability("reentrancy", "Потенциальная реентерабельность", finding.message, "Применить checks-effects-interactions и рассмотреть ReentrancyGuard.");
+    return vulnerability(
+      "reentrancy",
+      "Потенциальная реентерабельность",
+      finding.message,
+      "Применить checks-effects-interactions и рассмотреть ReentrancyGuard."
+    );
   }
 
   if (rule.includes("TX_ORIGIN")) {
-    return vulnerability("access-control", "Риск авторизации через tx.origin", finding.message, "Заменить `tx.origin` на `msg.sender` и явную модель ролей.");
+    return vulnerability(
+      "access-control",
+      "Риск авторизации через tx.origin",
+      finding.message,
+      "Заменить `tx.origin` на `msg.sender` и явную модель ролей."
+    );
   }
 
-  if (rule.includes("DELEGATECALL") || rule.includes("LOW_LEVEL") || rule.includes("LOWLEVEL")) {
-    return vulnerability("dangerous-call", "Опасный внешний вызов", finding.message, "Проверить target, return value, reentrancy-риск и ограничения доступа.");
+  if (
+    rule.includes("DELEGATECALL") ||
+    rule.includes("LOW_LEVEL") ||
+    rule.includes("LOWLEVEL")
+  ) {
+    return vulnerability(
+      "dangerous-call",
+      "Опасный внешний вызов",
+      finding.message,
+      "Проверить target, return value, reentrancy-риск и ограничения доступа."
+    );
   }
 
   if (rule.includes("SELFDESTRUCT")) {
-    return vulnerability("destructive-operation", "Опасная операция самоуничтожения", finding.message, "Удалить или строго ограничить destructive emergency path.");
+    return vulnerability(
+      "destructive-operation",
+      "Опасная операция самоуничтожения",
+      finding.message,
+      "Удалить или строго ограничить destructive emergency path."
+    );
   }
 
-  if (rule.includes("TIMESTAMP") || rule.includes("WEAK_PRNG") || rule.includes("RANDOM")) {
-    return vulnerability("randomness-or-time", "Небезопасная зависимость от времени или случайности", finding.message, "Не использовать timestamp/block data как надежный источник случайности.");
+  if (
+    rule.includes("TIMESTAMP") ||
+    rule.includes("WEAK_PRNG") ||
+    rule.includes("RANDOM")
+  ) {
+    return vulnerability(
+      "randomness-or-time",
+      "Небезопасная зависимость от времени или случайности",
+      finding.message,
+      "Не использовать timestamp/block data как надежный источник случайности."
+    );
   }
 
   if (rule.includes("ACCESS") || rule.includes("AUTH") || rule.includes("OWNER")) {
-    return vulnerability("access-control", "Проблема контроля доступа", finding.message, "Проверить owner/admin modifiers, роли и privileged functions.");
+    return vulnerability(
+      "access-control",
+      "Проблема контроля доступа",
+      finding.message,
+      "Проверить owner/admin modifiers, роли и privileged functions."
+    );
   }
 
-  if (rule.includes("UNINITIALIZED") || rule.includes("SHADOW") || rule.includes("VISIBILITY")) {
+  if (
+    rule.includes("UNINITIALIZED") ||
+    rule.includes("SHADOW") ||
+    rule.includes("VISIBILITY")
+  ) {
     return {
       category: "configuration",
       displayKind: "vulnerability",
@@ -251,8 +307,16 @@ function classifyFoundry(
 ): PartialClassification {
   const message = finding.message || "";
 
-  if (rule === "FOUNDRY_FILE_NOT_FOUND" || rule === "FOUNDRY_TARGET_NOT_FOUND" || rule.includes("TIMEOUT")) {
-    return toolError("Ошибка запуска Foundry", "Foundry не получил корректную цель анализа.", "Проверить entrypoint проекта, наличие foundry.toml и структуру workspace.");
+  if (
+    rule === "FOUNDRY_FILE_NOT_FOUND" ||
+    rule === "FOUNDRY_TARGET_NOT_FOUND" ||
+    rule.includes("TIMEOUT")
+  ) {
+    return toolError(
+      "Ошибка запуска Foundry",
+      "Foundry не получил корректную цель анализа.",
+      "Проверить entrypoint проекта, наличие foundry.toml и структуру workspace."
+    );
   }
 
   if (rule === "FOUNDRY_BUILD_AND_TEST" && severity === "info") {
@@ -306,20 +370,26 @@ function classifyMythril(
   const message = finding.message || "";
 
   if (rule === "MYTHRIL_FILE_NOT_FOUND" || rule === "MYTHRIL_NO_SOLIDITY_FILES") {
-    return toolError("Ошибка входных данных Mythril", "Mythril не нашел Solidity-файл для анализа.", "Проверить project entrypoint и наличие `.sol` файлов.");
+    return toolError(
+      "Ошибка входных данных Mythril",
+      "Mythril не нашел Solidity-файл для анализа.",
+      "Проверить project entrypoint и наличие `.sol` файлов."
+    );
   }
 
-  if (containsAny(message, [
-    "SWC-",
-    "Integer Overflow",
-    "Integer Underflow",
-    "Reentrancy",
-    "Unchecked Call",
-    "Transaction Order Dependence",
-    "Timestamp Dependence",
-    "Exception State",
-    "Dependence on tx.origin"
-  ])) {
+  if (
+    containsAny(message, [
+      "SWC-",
+      "Integer Overflow",
+      "Integer Underflow",
+      "Reentrancy",
+      "Unchecked Call",
+      "Transaction Order Dependence",
+      "Timestamp Dependence",
+      "Exception State",
+      "Dependence on tx.origin"
+    ])
+  ) {
     return {
       category: "symbolic-execution",
       displayKind: "vulnerability",
@@ -330,16 +400,22 @@ function classifyMythril(
     };
   }
 
-  if (containsAny(message, [
-    "Traceback",
-    "No such file",
-    "Solc experienced a fatal error",
-    "ParserError",
-    "CompilerError",
-    "Timeout",
-    "Docker command timed out"
-  ])) {
-    return toolError("Ошибка выполнения Mythril", "Mythril не смог корректно завершить символьное исполнение.", "Проверить stderr, solc version, imports и ограничения Docker timeout.");
+  if (
+    containsAny(message, [
+      "Traceback",
+      "No such file",
+      "Solc experienced a fatal error",
+      "ParserError",
+      "CompilerError",
+      "Timeout",
+      "Docker command timed out"
+    ])
+  ) {
+    return toolError(
+      "Ошибка выполнения Mythril",
+      "Mythril не смог корректно завершить символьное исполнение.",
+      "Проверить stderr, solc version, imports и ограничения Docker timeout."
+    );
   }
 
   return {
@@ -347,9 +423,10 @@ function classifyMythril(
     displayKind: severity === "info" ? "tool-status" : "vulnerability",
     title: severity === "info" ? "Mythril завершил символьное исполнение" : "Непроверенный результат Mythril",
     shortDescription: summarize(message),
-    recommendation: severity === "info"
-      ? "Дополнительных действий по этому статусу не требуется."
-      : "Проверить raw output Mythril и определить, является ли результат уязвимостью или ошибкой инструмента.",
+    recommendation:
+      severity === "info"
+        ? "Дополнительных действий по этому статусу не требуется."
+        : "Проверить raw output Mythril и определить, является ли результат уязвимостью или ошибкой инструмента.",
     isActionable: severity !== "info"
   };
 }
@@ -362,7 +439,11 @@ function classifyEchidna(
   const message = finding.message || "";
 
   if (rule === "ECHIDNA_FILE_NOT_FOUND" || rule === "ECHIDNA_NO_SOLIDITY_FILES") {
-    return toolError("Ошибка входных данных Echidna", "Echidna не нашла Solidity-файл для fuzzing.", "Проверить структуру проекта и наличие target-контракта.");
+    return toolError(
+      "Ошибка входных данных Echidna",
+      "Echidna не нашла Solidity-файл для fuzzing.",
+      "Проверить структуру проекта и наличие target-контракта."
+    );
   }
 
   if (rule === "ECHIDNA_CONFIG_NOT_FOUND") {
@@ -407,7 +488,11 @@ function classifyEchidna(
   }
 
   if (severity === "high" && hasSetupError) {
-    return toolError("Ошибка настройки Echidna", "Echidna завершилась с ошибкой конфигурации, target-контракта или компиляции.", "Проверить echidna.yaml, target contract, imports и compiler errors.");
+    return toolError(
+      "Ошибка настройки Echidna",
+      "Echidna завершилась с ошибкой конфигурации, target-контракта или компиляции.",
+      "Проверить echidna.yaml, target contract, imports и compiler errors."
+    );
   }
 
   return {
@@ -415,16 +500,23 @@ function classifyEchidna(
     displayKind: severity === "info" ? "tool-status" : "vulnerability",
     title: severity === "info" ? "Echidna не сообщила о failing property" : "Проблема fuzzing-запуска Echidna",
     shortDescription: summarize(message),
-    recommendation: severity === "info"
-      ? "Дополнительных действий по этому статусу не требуется."
-      : "Проверить raw output Echidna и определить, это failing property или ошибка настройки.",
+    recommendation:
+      severity === "info"
+        ? "Дополнительных действий по этому статусу не требуется."
+        : "Проверить raw output Echidna и определить, это failing property или ошибка настройки.",
     isActionable: severity !== "info"
   };
 }
 
-function classifyCfg(rule: string): PartialClassification {
+function classifyCfg(finding: FindingRead, rule: string): PartialClassification {
+  const message = finding.message || "";
+
   if (rule === "CFG_FILE_NOT_FOUND") {
-    return toolError("Файл для CFG не найден", "CFG-анализатор не смог открыть project entrypoint.", "Проверить, существует ли файл проекта на сервере.");
+    return toolError(
+      "Файл для CFG не найден",
+      "CFG-анализатор не смог открыть точку входа проекта.",
+      "Проверить, существует ли файл проекта на сервере."
+    );
   }
 
   if (rule === "CFG_NO_FUNCTIONS") {
@@ -438,23 +530,42 @@ function classifyCfg(rule: string): PartialClassification {
     };
   }
 
-  if (rule === "CFG_FUNCTION_GRAPH") {
+  if (
+    rule === "CFG_FUNCTION_GRAPH" ||
+    message.includes("'nodes'") ||
+    message.includes('"nodes"') ||
+    message.includes("'nodes_count'") ||
+    message.includes('"nodes_count"')
+  ) {
     return {
       category: "control-flow",
       displayKind: "graph-info",
       title: "Граф потока управления функции",
-      shortDescription: "CFG-анализатор извлек управляющие конструкции функции. Это не является уязвимостью само по себе.",
-      recommendation: "Использовать граф как вспомогательный материал для ручного аудита.",
+      shortDescription: "CFG-анализатор извлек управляющую структуру функции. Это вспомогательная информация для анализа, а не самостоятельная уязвимость.",
+      recommendation: "Использовать граф для ручной проверки условий, внешних вызовов и порядка выполнения операций.",
       isActionable: false
     };
   }
 
-  return classifyUnknownRuleAsInfo("Информационный результат CFG");
+  return {
+    category: "control-flow",
+    displayKind: "graph-info",
+    title: "Информационный результат CFG",
+    shortDescription: summarize(message),
+    recommendation: "Проверить структуру функции и использовать результат как вспомогательные данные аудита.",
+    isActionable: false
+  };
 }
 
-function classifyDfg(rule: string): PartialClassification {
+function classifyDfg(finding: FindingRead, rule: string): PartialClassification {
+  const message = finding.message || "";
+
   if (rule === "DFG_FILE_NOT_FOUND") {
-    return toolError("Файл для DFG не найден", "DFG-анализатор не смог открыть project entrypoint.", "Проверить, существует ли файл проекта на сервере.");
+    return toolError(
+      "Файл для DFG не найден",
+      "DFG-анализатор не смог открыть точку входа проекта.",
+      "Проверить, существует ли файл проекта на сервере."
+    );
   }
 
   if (rule === "DFG_NO_STATE_VARIABLES") {
@@ -479,7 +590,11 @@ function classifyDfg(rule: string): PartialClassification {
     };
   }
 
-  if (rule === "DFG_STATE_READ") {
+  if (
+    rule === "DFG_STATE_READ" ||
+    message.includes("'access_type': 'read'") ||
+    message.includes('"access_type": "read"')
+  ) {
     return {
       category: "data-flow",
       displayKind: "graph-info",
@@ -490,7 +605,11 @@ function classifyDfg(rule: string): PartialClassification {
     };
   }
 
-  if (rule === "DFG_STATE_WRITE") {
+  if (
+    rule === "DFG_STATE_WRITE" ||
+    message.includes("'access_type': 'write'") ||
+    message.includes('"access_type": "write"')
+  ) {
     return {
       category: "data-flow",
       displayKind: "graph-info",
@@ -501,13 +620,22 @@ function classifyDfg(rule: string): PartialClassification {
     };
   }
 
-  return classifyUnknownRuleAsInfo("Информационный результат DFG");
+  return {
+    category: "data-flow",
+    displayKind: "graph-info",
+    title: "Информационный результат DFG",
+    shortDescription: summarize(message),
+    recommendation: "Использовать результат как вспомогательные данные аудита.",
+    isActionable: false
+  };
 }
 
 function classifyReentrancyCorrelation(
   finding: FindingRead,
   rule: string
 ): PartialClassification {
+  const message = finding.message || "";
+
   if (rule === "REENTRANCY_CORRELATION_NO_FILES") {
     return {
       category: "informational",
@@ -530,7 +658,11 @@ function classifyReentrancyCorrelation(
     };
   }
 
-  if (rule === "POSSIBLE_REENTRANCY_BY_CFG_DFG") {
+  if (
+    rule === "POSSIBLE_REENTRANCY_BY_CFG_DFG" ||
+    message.includes("External call line") ||
+    message.includes("State write line")
+  ) {
     return {
       category: "reentrancy",
       displayKind: "vulnerability",
@@ -541,7 +673,12 @@ function classifyReentrancyCorrelation(
     };
   }
 
-  return vulnerability("reentrancy", "Результат корреляции реентерабельности", finding.message, "Проверить порядок внешнего вызова и обновления состояния.");
+  return vulnerability(
+    "reentrancy",
+    "Результат корреляции реентерабельности",
+    finding.message,
+    "Проверить порядок внешнего вызова и обновления состояния."
+  );
 }
 
 function classifyManualAudit(rule: string): PartialClassification {
@@ -621,7 +758,11 @@ function classifyUnknown(
     rule.includes("FILE_NOT_FOUND") ||
     rule.includes("NO_SOLIDITY_FILES")
   ) {
-    return toolError("Ошибка анализатора", "Анализатор вернул техническую ошибку.", "Проверить raw output, входной файл и конфигурацию инструмента.");
+    return toolError(
+      "Ошибка анализатора",
+      "Анализатор вернул техническую ошибку.",
+      "Проверить raw output, входной файл и конфигурацию инструмента."
+    );
   }
 
   if (rule.includes("NO_FINDINGS") || rule.includes("NO_ISSUES")) {
@@ -672,7 +813,11 @@ function vulnerability(
   };
 }
 
-function toolError(title: string, description: string, recommendation: string): PartialClassification {
+function toolError(
+  title: string,
+  description: string,
+  recommendation: string
+): PartialClassification {
   return {
     category: "tool-error",
     displayKind: "tool-error",
@@ -680,17 +825,6 @@ function toolError(title: string, description: string, recommendation: string): 
     shortDescription: description,
     recommendation,
     isActionable: true
-  };
-}
-
-function classifyUnknownRuleAsInfo(title: string): PartialClassification {
-  return {
-    category: "informational",
-    displayKind: "tool-status",
-    title,
-    shortDescription: "Анализатор вернул информационный результат.",
-    recommendation: "Проверить raw output при необходимости.",
-    isActionable: false
   };
 }
 
@@ -728,6 +862,8 @@ function buildSortWeight(
     "fuzzing-failure": 600,
     "testing-failure": 550,
     "symbolic-execution": 500,
+    "control-flow": 450,
+    "data-flow": 430,
     configuration: 300,
     unknown: 100
   };
