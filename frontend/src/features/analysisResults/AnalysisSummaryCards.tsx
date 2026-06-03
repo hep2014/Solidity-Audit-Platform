@@ -10,71 +10,62 @@ export function AnalysisSummaryCards({ summary }: AnalysisSummaryCardsProps) {
   const hasVulnerabilities = summary.vulnerabilityCount > 0;
 
   return (
-    <div className="analysis-summary-block">
-      <div className="analysis-verdict">
+    <section className="result-summary-panel">
+      <div className="result-summary-verdict">
         <span>Итоговая оценка</span>
 
-        {hasVulnerabilities ? (
-          <strong className="verdict-danger">
-            Найдены потенциальные уязвимости
-          </strong>
-        ) : hasToolErrors ? (
-          <strong className="verdict-warning">
-            Уязвимости не подтверждены, но есть ошибки анализаторов
-          </strong>
-        ) : (
-          <strong className="verdict-success">
-            Подтвержденные уязвимости не найдены
-          </strong>
-        )}
+        <strong
+          className={
+            hasVulnerabilities
+              ? "verdict-danger"
+              : hasToolErrors
+                ? "verdict-warning"
+                : "verdict-success"
+          }
+        >
+          {hasVulnerabilities
+            ? "Найдены потенциальные уязвимости"
+            : hasToolErrors
+              ? "Есть ошибки анализаторов"
+              : "Подтвержденные уязвимости не найдены"}
+        </strong>
 
         <p>
-          Сводка считает уязвимостями только результаты типа «Уязвимость».
-          Ручные проверки, CFG/DFG-факты и успешные статусы анализаторов не
-          включаются в число уязвимостей.
+          Уязвимостями считаются только результаты соответствующего типа. Ручные
+          проверки, CFG/DFG-факты и успешные статусы анализаторов учитываются
+          отдельно.
         </p>
       </div>
 
-      <div className="summary-grid">
-        <div className="metric-card">
-          <span>Всего результатов</span>
-          <strong>{summary.totalFindings}</strong>
-        </div>
-
-        <div className="metric-card">
-          <span>Уязвимости</span>
-          <strong>{summary.vulnerabilityCount}</strong>
-        </div>
-
-        <div className="metric-card">
-          <span>Ошибки анализаторов</span>
-          <strong>{summary.toolErrorCount}</strong>
-        </div>
-
-        <div className="metric-card">
-          <span>Ручная проверка</span>
-          <strong>{summary.manualCheckCount}</strong>
-        </div>
-
-        <div className="metric-card">
-          <span>Графовые данные</span>
-          <strong>{summary.graphInfoCount}</strong>
-        </div>
-
-        <div className="metric-card">
-          <span>Статусы без проблем</span>
-          <strong>{summary.noIssueCount + summary.toolStatusCount}</strong>
-        </div>
+      <div className="result-summary-metrics">
+        <Metric label="Всего результатов" value={summary.totalFindings} />
+        <Metric label="Уязвимости" value={summary.vulnerabilityCount} />
+        <Metric label="Ошибки анализаторов" value={summary.toolErrorCount} />
+        <Metric label="Ручная проверка" value={summary.manualCheckCount} />
+        <Metric label="Графовые данные" value={summary.graphInfoCount} />
+        <Metric
+          label="Статусы без проблем"
+          value={summary.noIssueCount + summary.toolStatusCount}
+        />
       </div>
 
-      <div className="severity-summary-grid">
+      <div className="result-severity-row">
         {Object.entries(summary.bySeverity).map(([severity, count]) => (
-          <div key={severity} className="severity-summary-card">
+          <div key={severity}>
             <span>{getSeverityRuLabel(severity)}</span>
             <strong>{count}</strong>
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="result-summary-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { DashboardPage } from "../pages/DashboardPage";
 import { ProjectsPage } from "../pages/ProjectsPage";
 import { ProjectPage } from "../pages/ProjectPage";
 import { AnalysisPage } from "../pages/AnalysisPage";
+import { AnalysisResultsPage } from "../pages/AnalysisResultsPage";
 import { QuickScanPage } from "../pages/QuickScanPage";
 import { HealthPage } from "../pages/HealthPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -29,6 +30,10 @@ export const router = createBrowserRouter([
       {
         path: "analyses/:analysisId",
         element: <AnalysisPage />
+      },
+      {
+        path: "analyses/:analysisId/results",
+        element: <AnalysisResultsPage />
       },
       {
         path: "quick-scan",

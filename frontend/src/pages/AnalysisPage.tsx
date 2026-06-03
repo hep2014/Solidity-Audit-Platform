@@ -13,8 +13,7 @@ import {
 import { Card, CardHeader } from "../shared/ui/Card";
 import { Button } from "../shared/ui/Button";
 import { Badge, statusTone } from "../shared/ui/Badge";
-import { AnalysisResultsView } from "../features/analysisResults/AnalysisResultsView";
-import { AnalysisLogsPanel } from "../features/analysisResults/AnalysisLogsPanel";
+import { AnalysisResultsPreview } from "../features/analysisResults/AnalysisResultsPreview";
 import {
   FULL_PIPELINE_STEPS,
   PipelineSteps
@@ -478,7 +477,7 @@ export function AnalysisPage() {
           <CardHeader
             eyebrow="Сводка"
             title="Итоговая оценка"
-            description="Сводка строится на frontend-классификации: уязвимости, ошибки анализаторов, ручные проверки и CFG/DFG-данные считаются отдельно."
+            description=""
             action={
               report && (
                 <Button
@@ -493,22 +492,16 @@ export function AnalysisPage() {
           />
 
           <div className="card-body">
-            <AnalysisResultsView findings={findings} logs={logs} />
+            <AnalysisResultsPreview
+              analysisId={analysis.id}
+              findings={findings}
+              logs={logs}
+            />
           </div>
         </Card>
       </section>
 
-      <Card>
-        <CardHeader
-          eyebrow="Логи"
-          title="Технический вывод анализаторов"
-          description="Здесь отдельно отображаются stdout, stderr и сообщения об ошибках. Эти данные нужны для диагностики и не смешиваются со списком уязвимостей."
-        />
-
-        <div className="card-body">
-          <AnalysisLogsPanel logs={logs} />
-        </div>
-      </Card>
+      
     </div>
   );
 }

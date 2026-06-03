@@ -14,8 +14,10 @@ import { FindingDetailsDrawer } from "./FindingDetailsDrawer";
 import {
   applyResultsFilters,
   DEFAULT_RESULTS_FILTERS,
+  hasActiveFilters,
   type ResultsFilterState
 } from "./filters";
+import { Button } from "../../shared/ui/Button";
 
 interface AnalysisResultsViewProps {
   findings: FindingRead[];
@@ -48,9 +50,35 @@ export function AnalysisResultsView({
   );
 
   const groups = useMemo(
-    () => groupFindingsByAnalyzer(visibleFindings, logs),
+    () =>
+      groupFindingsByAnalyzer(visibleFindings, logs, {
+        includeLogOnlyGroups: false
+      }),
     [visibleFindings, logs]
   );
+
+  const hiddenGraphCount = summary.graphInfoCount;
+  const hiddenStatusCount = summary.noIssueCount + summary.toolStatusCount;
+
+  function showGraphInfo() {
+    setFilters((current) => ({
+      ...current,
+      showGraphInfo: true,
+      displayKind: current.displayKind === "default" ? "all" : current.displayKind
+    }));
+  }
+
+  function showStatuses() {
+    setFilters((current) => ({
+      ...current,
+      showNoIssue: true,
+      displayKind: current.displayKind === "default" ? "all" : current.displayKind
+    }));
+  }
+
+  function resetFilters() {
+    setFilters(DEFAULT_RESULTS_FILTERS);
+  }
 
   return (
     <div className="analysis-results-view">
@@ -63,16 +91,51 @@ export function AnalysisResultsView({
         visibleCount={visibleFindings.length}
       />
 
+      {hiddenGraphCount > 0 && !filters.showGraphInfo && (
+        <div className="results-hint-card">
+          <strong>CFG/DFG-данные скрыты</strong>
+          <p>
+            Анализаторы графа вернули {hiddenGraphCount} результат(ов). По
+            умолчанию они скрыты, чтобы не смешивать вспомогательную графовую
+            информацию с уязвимостями.
+          </p>
+
+          <Button type="button" variant="secondary" onClick={showGraphInfo}>
+            Показать CFG/DFG-данные
+          </Button>
+        </div>
+      )}
+
+      {hiddenStatusCount > 0 && !filters.showNoIssue && (
+        <div className="results-hint-card">
+          <strong>Успешные статусы скрыты</strong>
+          <p>
+            Есть {hiddenStatusCount} информационных статус(ов) без проблем. Они
+            скрыты, чтобы основной список оставался компактным.
+          </p>
+
+          <Button type="button" variant="secondary" onClick={showStatuses}>
+            Показать статусы без проблем
+          </Button>
+        </div>
+      )}
+
       {groups.length === 0 ? (
-        <div className="empty-state">
+        <div className="empty-state results-empty-state">
           <strong>Нет результатов по выбранным фильтрам</strong>
           <p>
-            Измените параметры фильтрации, включите CFG/DFG-данные или покажите
-            успешные статусы анализаторов.
+            Сейчас фильтр показывает 0 записей. Измените параметры фильтрации,
+            включите CFG/DFG-данные или сбросьте фильтры.
           </p>
+
+          {hasActiveFilters(filters) && (
+            <Button type="button" variant="secondary" onClick={resetFilters}>
+              Сбросить фильтры
+            </Button>
+          )}
         </div>
       ) : (
-        <div className="analyzer-section-list">
+        <div className="analyzer-section-list analyzer-section-cards">
           {groups.map((group) => (
             <AnalyzerResultsSection
               key={group.analyzer}

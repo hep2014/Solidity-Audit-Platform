@@ -27,6 +27,7 @@ export function AnalyzerResultsSection({
   onOpenDetails
 }: AnalyzerResultsSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
+
   const runStatus = useMemo(
     () => buildAnalyzerRunStatus(group.logs),
     [group.logs]
@@ -53,10 +54,6 @@ export function AnalyzerResultsSection({
       return "success";
     }
 
-    if (group.findings.length > 0 || group.logs.length > 0) {
-      return "success";
-    }
-
     return "neutral";
   }, [group, runStatus]);
 
@@ -74,9 +71,9 @@ export function AnalyzerResultsSection({
   }, [group, runStatus]);
 
   return (
-    <section className="analyzer-section">
-      <header className="analyzer-section-header">
-        <div>
+    <section className="analyzer-result-card">
+      <header className="analyzer-result-header">
+        <div className="analyzer-result-heading">
           <div className="analyzer-section-topline">
             <Badge tone={statusTone}>{statusLabel}</Badge>
             <span>{getAnalyzerPurpose(group.analyzer)}</span>
@@ -105,20 +102,19 @@ export function AnalyzerResultsSection({
       </header>
 
       {open && (
-        <div className="analyzer-section-body">
+        <div className="analyzer-result-body">
           <AnalyzerRunStatusCard logs={group.logs} />
 
           {group.findings.length === 0 ? (
-            <div className="empty-state">
-              <strong>Findings не получены</strong>
+            <div className="empty-state compact-empty-state">
+              <strong>Результаты не получены</strong>
               <p>
-                Для этого анализатора нет нормализованных результатов. Если
-                запуск завершился с ошибкой, подробности доступны в технических
-                логах.
+                Для этого анализатора нет записей, подходящих под текущие
+                фильтры.
               </p>
             </div>
           ) : (
-            <div className="finding-list">
+            <div className="finding-card-grid">
               {group.findings.map((finding) => (
                 <FindingCard
                   key={finding.id}

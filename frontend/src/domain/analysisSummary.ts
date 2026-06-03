@@ -38,10 +38,18 @@ const ALL_CATEGORIES: VulnerabilityClass[] = [
   "unknown"
 ];
 
+export interface GroupFindingsOptions {
+  includeLogOnlyGroups?: boolean;
+}
+
 export function buildAnalysisUiSummary(findings: ClassifiedFinding[]): AnalysisUiSummary {
   const bySeverity = { ...EMPTY_SEVERITY_COUNTS };
-  const byAnalyzer = Object.fromEntries(ALL_ANALYZERS.map((key) => [key, 0])) as Record<AnalyzerKey, number>;
-  const byCategory = Object.fromEntries(ALL_CATEGORIES.map((key) => [key, 0])) as Record<VulnerabilityClass, number>;
+  const byAnalyzer = Object.fromEntries(
+    ALL_ANALYZERS.map((key) => [key, 0])
+  ) as Record<AnalyzerKey, number>;
+  const byCategory = Object.fromEntries(
+    ALL_CATEGORIES.map((key) => [key, 0])
+  ) as Record<VulnerabilityClass, number>;
 
   let vulnerabilityCount = 0;
   let manualCheckCount = 0;
@@ -96,17 +104,11 @@ export function buildAnalysisUiSummary(findings: ClassifiedFinding[]): AnalysisU
 
 export function groupFindingsByAnalyzer(
   findings: ClassifiedFinding[],
-  logs: AnalysisLogRead[]
+  logs: AnalysisLogRead[],
+  options: GroupFindingsOptions = {}
 ): GroupedAnalyzerFindings[] {
+  const includeLogOnlyGroups = options.includeLogOnlyGroups ?? false;
   const groups = new Map<AnalyzerKey, GroupedAnalyzerFindings>();
-
-  for (const analyzer of ALL_ANALYZERS) {
-    if (analyzer === "unknown") {
-      continue;
-    }
-
-    groups.set(analyzer, createGroup(analyzer));
-  }
 
   for (const finding of findings) {
     if (!groups.has(finding.analyzer)) {
@@ -127,6 +129,10 @@ export function groupFindingsByAnalyzer(
     const analyzer = normalizeAnalyzer(log.tool);
 
     if (!groups.has(analyzer)) {
+      if (!includeLogOnlyGroups) {
+        continue;
+      }
+
       groups.set(analyzer, createGroup(analyzer));
     }
 
@@ -134,7 +140,13 @@ export function groupFindingsByAnalyzer(
   }
 
   return [...groups.values()]
-    .filter((group) => group.findings.length > 0 || group.logs.length > 0)
+    .filter((group) => {
+      if (group.findings.length > 0) {
+        return true;
+      }
+
+      return includeLogOnlyGroups && group.logs.length > 0;
+    })
     .sort((a, b) => ANALYZERS[a.analyzer].order - ANALYZERS[b.analyzer].order);
 }
 
