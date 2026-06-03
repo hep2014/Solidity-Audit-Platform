@@ -36,7 +36,7 @@ services:
     environment:
       RUN_MIGRATIONS: "true"
       DOCKER_CONTAINER_STORAGE_DIR: /app/storage
-      DOCKER_HOST_STORAGE_DIR: /home/hep2014/PycharmProjects/solidity/backend/storage
+      DOCKER_HOST_STORAGE_DIR: ${PWD}/backend/storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -57,7 +57,7 @@ services:
       - ./backend/.env
     environment:
       DOCKER_CONTAINER_STORAGE_DIR: /app/storage
-      DOCKER_HOST_STORAGE_DIR: /home/hep2014/PycharmProjects/solidity/backend/storage
+      DOCKER_HOST_STORAGE_DIR: ${PWD}/backend/storage
     depends_on:
       postgres:
         condition: service_healthy
