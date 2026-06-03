@@ -44,7 +44,9 @@ function CfgEvidenceBlock({
   data: ParsedCfgEvidence;
   compact: boolean;
 }) {
-  const visibleNodes = compact ? data.nodes.slice(0, 3) : data.nodes.slice(0, 12);
+  const visibleNodes = compact
+    ? data.nodes.slice(0, 4)
+    : data.nodes.slice(0, 16);
 
   return (
     <section className="special-evidence special-evidence-cfg">
@@ -66,31 +68,46 @@ function CfgEvidenceBlock({
         <Fact label="Ребер" value={data.edgesCount ?? "—"} />
       </div>
 
-      {visibleNodes.length > 0 && (
-        <div className="special-node-list">
+      {visibleNodes.length > 0 ? (
+        <div className="cfg-flow-graph">
           {visibleNodes.map((node, index) => (
-            <article key={node.id || index}>
-              <Badge>{node.type || "node"}</Badge>
-              <code>{node.label || node.id || "—"}</code>
-              <span>строка {node.line ?? "—"}</span>
+            <div
+              key={`${node.id || node.line || index}`}
+              className="cfg-flow-item"
+            >
+              <article className={`cfg-node cfg-node-${normalizeCfgNodeType(node.type)}`}>
+                <div className="cfg-node-top">
+                  <Badge>{translateCfgNodeType(node.type)}</Badge>
+                  <span>строка {node.line ?? "—"}</span>
+                </div>
+
+                <code>{node.label || node.id || "—"}</code>
+              </article>
+
+              {index < visibleNodes.length - 1 && (
+                <div className="cfg-flow-arrow">↓</div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="special-compact-hint">
+          CFG-структура распознана, но список узлов не был извлечен из сообщения.
+        </div>
+      )}
+
+      {!compact && data.edges.length > 0 && (
+        <div className="special-edge-list">
+          {data.edges.slice(0, 12).map((edge, index) => (
+            <article key={`${edge.from}-${edge.to}-${index}`}>
+              <code>{edge.from || "?"}</code>
+              <span>→</span>
+              <code>{edge.to || "?"}</code>
+              <Badge>{edge.type || "edge"}</Badge>
             </article>
           ))}
         </div>
-
       )}
-
-            {!compact && data.edges.length > 0 && (
-        <div className="special-edge-list">
-            {data.edges.slice(0, 12).map((edge, index) => (
-            <article key={`${edge.from}-${edge.to}-${index}`}>
-                <code>{edge.from || "?"}</code>
-                <span>→</span>
-                <code>{edge.to || "?"}</code>
-                <Badge>{edge.type || "edge"}</Badge>
-            </article>
-            ))}
-        </div>
-        )}
 
       {compact && data.nodes.length > visibleNodes.length && (
         <div className="special-compact-hint">
@@ -256,4 +273,48 @@ function translateAccessType(value: string | null): string {
   }
 
   return value || "—";
+}
+
+function normalizeCfgNodeType(value: string | undefined): string {
+  const normalized = String(value || "").toLowerCase();
+
+  if (normalized.includes("condition")) {
+    return "condition";
+  }
+
+  if (normalized.includes("external")) {
+    return "external-call";
+  }
+
+  if (normalized.includes("return")) {
+    return "return";
+  }
+
+  if (normalized.includes("statement")) {
+    return "statement";
+  }
+
+  return "default";
+}
+
+function translateCfgNodeType(value: string | undefined): string {
+  const normalized = String(value || "").toLowerCase();
+
+  if (normalized.includes("condition")) {
+    return "условие";
+  }
+
+  if (normalized.includes("external")) {
+    return "внешний вызов";
+  }
+
+  if (normalized.includes("return")) {
+    return "return";
+  }
+
+  if (normalized.includes("statement")) {
+    return "оператор";
+  }
+
+  return value || "узел";
 }
